@@ -8,19 +8,19 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-design%20phase-orange.svg)]()
 
-*Measuring whether drift detectors actually predict model failure — or just notice that the data moved.*
+*A drift monitor that grades its own alerts — do they predict model failure, or just notice that the data moved?*
 
-[Findings](#-findings) · [Pipeline](#-pipeline) · [Architecture](#-architecture) · [Drift Methods](#-drift-detection-methods) · [Quickstart](#-quickstart) · [Roadmap](#-roadmap)
+[Results](#-results) · [Pipeline](#-pipeline) · [Architecture](#-architecture) · [Drift Methods](#-drift-detection-methods) · [Quickstart](#-quickstart) · [Roadmap](#-roadmap)
 
 </div>
 
 ---
 
-> **The research question: does input-space drift detection actually predict model failure?**
+> **What this is:** a drift-monitoring pipeline for a production-style fraud model — plus the one thing most drift repos skip, a scorecard for whether its own alerts were worth acting on.
 >
-> Drift detectors (PSI, KS, MMD) monitor the *input* distribution because production labels arrive late or never. But an input shift is not automatically a performance problem — a detector can fire on a harmless shift, or stay silent while accuracy collapses. Prior work ([Rabanser et al. 2019](https://arxiv.org/abs/1810.11953)) found this gap is large and method-dependent.
+> Drift detectors (PSI, KS, MMD) watch the *input* distribution, because in fraud the real labels arrive days or weeks late. But an input shift isn't automatically a problem: a detector can fire on a harmless shift, or stay quiet while accuracy collapses.
 >
-> Drift Sentinel replays a LightGBM fraud classifier over temporally-ordered IEEE-CIS batches, holding back labels from the detectors but using them for *evaluation*. Every alert is scored against realized degradation, producing an **alert precision** number per detector: of the times this method cried drift, how often did the model actually get worse?
+> Drift Sentinel replays a LightGBM fraud classifier over time-ordered IEEE-CIS batches. Detectors run label-free, exactly as they would in production. Labels are then used — only afterwards — to grade every alert that fired, producing an **alert precision** number per detector: of the times this method cried drift, how often did the model actually get worse?
 >
 > **No results yet.** All tables below are empty by design and get populated by running the pipeline. Any number in this README is either measured output or absent.
 
@@ -36,18 +36,18 @@ The standard answer is drift detection: watch the *input* distribution, because 
 
 But there is an assumption buried in that answer, and it is rarely tested: **that an input shift means a performance problem.** A detector can fire on a shift the model handles fine, and stay quiet while accuracy quietly collapses.
 
-**Drift Sentinel measures that gap directly.** It replays a frozen fraud classifier over temporally-ordered batches, runs each detector label-free, then uses withheld labels to grade every alert after the fact:
+**Drift Sentinel measures that gap directly.** It replays a frozen fraud classifier over time-ordered batches, runs each detector label-free, then uses withheld labels to grade every alert after the fact:
 
 1. **Does the model actually degrade** over the observed window? (Table 1)
 2. **Which detector notices first**, and how often does it cry wolf? (Table 2)
 3. **Do those alerts predict real harm?** — alert precision per detector (Table 3)
 4. **Which drift types does each method miss** under known ground truth? (Table 4)
 
-Table 3 is the one worth building the project for.
+Table 3 is the reason this exists. Anyone can implement PSI from a blog post; the interesting part is finding out whether PSI was ever worth listening to.
 
 ---
 
-## 📊 Findings
+## 📊 Results
 
 > **Status: no experiments run yet.** Every cell below is a placeholder. Batch boundaries are provisional until [Phase 0](#phase-0--premise-validation-day-1) measures the dataset's actual time span.
 
@@ -69,7 +69,7 @@ Consequently all windows below are expressed as **day offsets within the labeled
 | Batch 3 (days 120–149) | — | — | — | — | — | — | — |
 | Batch 4 (days 150–181) | — | — | — | — | — | — | — |
 
-**PR-AUC is the primary metric.** IEEE-CIS is ~3.5% fraud; ROC-AUC is inflated and insensitive at that imbalance. ROC-AUC is reported alongside for comparability with published baselines only.
+**PR-AUC is the primary metric.** IEEE-CIS is ~3.5% fraud; ROC-AUC is inflated and insensitive at that imbalance. ROC-AUC is reported alongside so the numbers line up with the usual IEEE-CIS baselines.
 
 ### Table 2 — Detector Comparison (Phase B)
 
@@ -92,7 +92,7 @@ The two trivial baselines are included deliberately: any detector that cannot be
 
 ### Table 3 — Alert Precision: Do Drift Alerts Predict Real Degradation? (Phase B)
 
-*The core finding. Each detector's alerts are treated as predictions of "PR-AUC will drop in this batch," then scored against measured performance.*
+*The headline table. Each detector's alerts are treated as predictions of "PR-AUC will drop in this batch," then scored against measured performance.*
 
 | Detector | Alerts Fired | Alerts Preceding Real Degradation | **Alert Precision** | Degradations Missed | **Alert Recall** |
 |---|---|---|---|---|---|
@@ -164,7 +164,7 @@ Batch replay, not live serving. The experiment needs temporally-ordered batches 
                        │                         │ realized degradation
                        ▼                         ▼
           ╔══════════════════════════════════════════════════╗
-          ║             ALERT SCORER  ← the finding          ║
+          ║        ALERT SCORER  ← the interesting part      ║
           ║  Did each alert precede real degradation?        ║
           ║  ▶ alert precision / recall per detector         ║
           ╚═══════════════════════╤══════════════════════════╝
@@ -179,8 +179,8 @@ The two halves are deliberately isolated: the drift engine is label-blind, and l
 
 | Decision | Rationale |
 |---|---|
-| **Alert precision as the headline metric** | "We implemented PSI" is not a finding. "PSI fired 8 times and 2 preceded real degradation" is. Detecting input shift is only useful insofar as it predicts harm |
-| **Batch replay over a live model server** | The research questions are all answerable offline. A FastAPI server changes no table and costs a week |
+| **Alert precision as the headline metric** | "I implemented PSI" says nothing. "PSI fired 8 times and 2 of them preceded real degradation" says something. Detecting input shift only matters insofar as it predicts harm |
+| **Batch replay over a live model server** | Every question here is answerable offline. A FastAPI server changes no table and costs a week |
 | **Labels withheld from detectors, used for scoring** | Preserves the practical claim (drift detection needs no labels) while still allowing alerts to be graded |
 | **PR-AUC primary, ROC-AUC secondary** | ~3.5% positive class. ROC-AUC is optimistic and flat under that imbalance |
 | **Trivial baselines in every comparison** | Never-alert and always-alert bound the problem. A detector that beats neither is noise with extra steps |
@@ -274,7 +274,7 @@ drift-sentinel/
 │   │   └── ensemble.py         # k-of-n vote across detectors
 │   ├── evaluation/
 │   │   ├── metrics.py          # PR-AUC, ROC-AUC, F1 per batch
-│   │   └── alert_scorer.py     # ← THE FINDING: alerts vs realized degradation
+│   │   └── alert_scorer.py     # ← THE POINT: alerts vs realized degradation
 │   └── report.py               # Static HTML report generator
 │
 ├── scripts/
@@ -306,7 +306,7 @@ drift-sentinel/
 └── .gitignore
 ```
 
-**Deferred (stretch, off the findings path):** `src/` FastAPI model server, `dashboard/` Streamlit app, SQLite prediction log. These demonstrate deployment skills but contribute nothing to Tables 1–4. Built only if Phases 0–C finish with time remaining.
+**Deferred (stretch):** `src/` FastAPI model server, `dashboard/` Streamlit app, SQLite prediction log. Good deployment-skills signal, but they contribute nothing to Tables 1–4. Built only if Phases 0–C finish with time remaining.
 
 ---
 
@@ -398,7 +398,7 @@ Known compute pressure points, both addressed in Phase B:
 
 ## 🔮 Roadmap
 
-One constraint drives the plan: produce real, defensible numbers against a real dataset — not toy examples, not synthetic-only benchmarks. Phases run in order; each one's output is the next one's input.
+One rule drives the plan: real numbers from a real dataset — no toy examples, no synthetic-only demos. Phases run in order; each one's output is the next one's input. Roughly four weeks of evenings.
 
 ### Phase 0 — Premise Validation (Day 1)
 Cheapest possible check that the project's core assumption holds, before any detector is written.
@@ -407,7 +407,7 @@ Cheapest possible check that the project's core assumption holds, before any det
 - [ ] Plot fraud rate and `TransactionAmt` distribution per 30-day bucket
 - [ ] **Decision gate:** is there visible natural drift across the window?
   - Yes → Phases A–C proceed as written
-  - No → Phase C engineered drift becomes the primary experiment, Phase A becomes a null result worth reporting ("IEEE-CIS shows no meaningful natural drift over 182 days")
+  - No → Phase C engineered drift becomes the main event, and Phase A gets written up as-is ("IEEE-CIS shows no meaningful natural drift over 182 days") — still a real answer, just not the expected one
 
 Phase 0 exists because every downstream table assumes the model degrades. If it doesn't, better to know on day 1 than in week 3.
 
@@ -419,7 +419,7 @@ Establish how much the model degrades over the labeled window without retraining
 - [ ] Fill Table 1 (PR-AUC primary)
 - [ ] Define the degradation threshold that Table 3 scores alerts against
 
-### Phase B — Detectors + Alert Precision ← the core contribution
+### Phase B — Detectors + Alert Precision ← the part worth showing
 - [ ] Implement PSI, KS, MMD, ensemble behind one detector interface
 - [ ] Run all detectors across all batches, label-free
 - [ ] Run NannyML and Evidently on the identical batches
@@ -435,7 +435,7 @@ Controlled drift with known ground truth, measuring sensitivity by drift type.
 - [ ] Write up which detector catches which drift type, and which it misses
 
 ### Stretch — Deployment Layer
-Only after Tables 1–4 are populated. Contributes no findings; demonstrates deployment skills.
+Only after Tables 1–4 are populated. Adds no numbers to any table; adds something clickable.
 - [ ] FastAPI `/predict` + `/health`, SQLite prediction log
 - [ ] Streamlit dashboard: drift score over time, alert log
 
@@ -447,10 +447,29 @@ Only after Tables 1–4 are populated. Contributes no findings; demonstrates dep
 
 ---
 
-## 📚 References
+## 🧰 What This Project Demonstrates
+
+Built as a personal project — no paper, no team, no budget. What it exercises:
+
+| Area | Concretely |
+|---|---|
+| **ML engineering** | LightGBM on 400+ features, temporal train/validation split, PR-AUC under 3.5% class imbalance |
+| **Statistics** | PSI, KS with multiple-testing correction, MMD with a kernel permutation test — implemented from the math, not called from a library |
+| **Evaluation design** | Label-free detection graded against withheld labels, trivial baselines on both ends, a null control for false positives |
+| **Judgement** | Knowing that "I built a drift monitor" is a commodity, and that "I measured whether the monitor was worth listening to" is not |
+| **Engineering practice** | One detector interface, tests on synthetic data with no dataset dependency, seeded runs, CI-friendly exit codes, HTML reports |
+| **Scoping** | A deployment layer that was specified, costed at a week, and cut because it moved no number — documented rather than quietly dropped |
+
+The honest version of the resume line, once the tables are full:
+
+> Built a drift-detection pipeline (PSI / KS / MMD / ensemble) over 180 days of IEEE-CIS fraud data, then measured **alert precision** — what fraction of each detector's alerts actually preceded model degradation — against never-alert and always-alert baselines and against NannyML and Evidently.
+
+---
+
+## 📚 Reading That Shaped This
 
 - [IEEE-CIS Fraud Detection Dataset](https://www.kaggle.com/competitions/ieee-fraud-detection) — Kaggle, 2019
-- [Failing Loudly: An Empirical Study of Methods for Detecting Dataset Shift](https://arxiv.org/abs/1810.11953) — Rabanser et al. 2019 — closest prior work; motivates the alert-precision question
+- [Failing Loudly: An Empirical Study of Methods for Detecting Dataset Shift](https://arxiv.org/abs/1810.11953) — Rabanser et al. 2019 — where the alert-precision idea came from
 - [A Kernel Two-Sample Test](https://jmlr.org/papers/v13/gretton12a.html) — Gretton et al. 2012 — MMD theoretical basis, unbiased estimator
 - [The Relationship Between Precision-Recall and ROC Curves](https://dl.acm.org/doi/10.1145/1143844.1143874) — Davis & Goadrich 2006 — why PR-AUC over ROC-AUC under class imbalance
 - [Learning and Evaluating Classifiers under Sample Selection Bias](https://dl.acm.org/doi/10.1145/1015330.1015425) — Zadrozny 2004

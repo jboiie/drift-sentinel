@@ -1,6 +1,6 @@
-# Prior Work
+# Prior Projects
 
-Drift Sentinel is the third project in a series focused on ML evaluation methodology.
+Drift Sentinel is the third in a series. Each one is about catching a system failing before anyone notices — same instinct, different domain.
 
 ---
 
@@ -34,6 +34,6 @@ The three projects form a coherent arc:
 | PAIR-Lab | How much worse does it get when the attacker adapts? | Iterative LLM-vs-LLM attack loop |
 | Drift Sentinel | Do the standard failure detectors actually predict failure? | Label-free drift detection, alerts graded against withheld labels |
 
-All three are fundamentally evaluation problems: how do you measure failure *before* it becomes visible to users, and how do you make those measurements externally comparable rather than self-referential?
+All three are the same kind of problem: how do you measure failure *before* users see it, and how do you keep the measurement honest instead of self-congratulatory?
 
 The progression is in what gets measured. Prompt-Autopsy measured a system's failure rate. PAIR-Lab measured how that rate moves under an adaptive adversary. Drift Sentinel turns the instrument on itself — measuring not whether the model fails, but whether the thing that is supposed to warn you about failure is any good at it. Each project moves one level up: system, then attacker, then monitor.

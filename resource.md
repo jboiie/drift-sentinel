@@ -1,6 +1,6 @@
 # Drift Sentinel — Resource-Constrained Build Plan
 
-> What actually gets built, given a student laptop and no budget. Scoped to produce real, defensible findings.
+> What actually gets built, given a student laptop, no budget, and evenings after coursework. Scoped so it finishes.
 
 ---
 
@@ -18,19 +18,19 @@
 | PRD Feature | This Build | Reason |
 |---|---|---|
 | ADWIN concept drift | Documented limitation, not built | Requires live label feedback — delayed ground truth not available in batch replay |
-| Online retraining loop | Out of scope | Research question is detection, not remediation |
+| Online retraining loop | Out of scope | The project is about detection, not remediation |
 | Multi-model adapter | LightGBM only | Keeps scope tight; adapter pattern documented for extension |
-| Real-time streaming | Batch replay | Batch covers all research questions; streaming adds infra complexity with no finding benefit |
-| Kubernetes | Nothing | No deployment on the findings path at all |
-| **FastAPI model server** | **Cut to stretch** | Changes no table. Batch replay answers every research question offline |
+| Real-time streaming | Batch replay | Batch answers every question here; streaming adds infra complexity and no new numbers |
+| Kubernetes | Nothing | Nothing in this project needs an orchestrator |
+| **FastAPI model server** | **Cut to stretch** | Changes no table. Batch replay answers everything offline |
 | **Streamlit dashboard** | **Cut to stretch** | Static HTML report already makes results sharable |
 | **SQLite / Supabase prediction log** | **Cut to stretch** | Only needed by the server that was cut. Batches are CSVs on disk |
 
 ### On cutting the deployment layer
 
-The server, dashboard, and prediction log were roughly a week of the original four. None of them move a number in Tables 1–4. That week buys the alert-scorer work in Phase B, which is the only part of this project that produces a finding not already in a hundred other drift-detection repos.
+The server, dashboard, and prediction log were roughly a week of the original four. None of them move a number in Tables 1–4. That week buys the alert-scorer work in Phase B — the only part of this project that isn't already in a hundred other drift-detection repos.
 
-The tradeoff is real: a live `/predict` endpoint is a visible deployment-skills signal. The judgement here is that one defensible finding beats one more CRUD API, and the deployment layer stays specified so it can be added later if Phases 0–C land early.
+The tradeoff is real, and it cuts differently for a portfolio project: a dashboard and a live `/predict` endpoint are things someone can *click*, and a table of numbers is not. The call here is that the alert-scorer is what makes the project memorable in an interview, and the deployment layer stays fully specified so it can be bolted on the moment Phases 0–C land. If time is tight at the end, ship the Streamlit dashboard before the FastAPI server — one screenshot in the README does more work than an endpoint nobody hits.
 
 ---
 
@@ -58,7 +58,7 @@ Deliverables:
 | No meaningful natural drift | Phase C engineered drift becomes the *primary* experiment; Phase A reports the null honestly |
 | Frame doesn't fit in memory | Column-drop by missingness threshold before anything else |
 
-The null outcome is not a failure. "IEEE-CIS shows no detectable natural drift over its labeled window, so detector comparison requires engineered drift" is a legitimate, publishable framing — and finding it on day 1 costs two hours instead of three weeks.
+The null outcome is not a failure. "IEEE-CIS shows no detectable natural drift over its labeled window, so detector comparison requires engineered drift" is a perfectly good thing to have found out — and finding it on day 1 costs two hours instead of three weeks.
 
 Stack: Pandas, Matplotlib. Nothing else installed yet.
 
@@ -79,7 +79,7 @@ Stack: Pandas, LightGBM, Scikit-learn, Matplotlib.
 
 ---
 
-### Phase B — Detectors + Alert Precision (Week 2) ← the core contribution
+### Phase B — Detectors + Alert Precision (Week 2) ← the part worth showing
 
 **Goal:** implement the detectors, then measure whether their alerts predict real degradation.
 
@@ -97,9 +97,9 @@ Deliverables:
 
 **Trivial baselines:** never-alert and always-alert run alongside. Any detector failing to beat always-alert on precision has earned nothing.
 
-**External baselines:** NannyML and Evidently on the identical batches. Self-referential numbers are worthless; third-party implementations are what make the comparison defensible.
+**External baselines:** NannyML and Evidently on the identical batches. Numbers that only compare against themselves prove nothing; third-party implementations are what make the comparison mean something.
 
-Order matters within this phase: build `alert_scorer` **early**, not last. It is the deliverable that distinguishes this project, and leaving it to the final day is how it becomes the thing that gets cut.
+Order matters within this phase: build `alert_scorer` **early**, not last. It is the one thing that makes this project distinctive, and leaving it to the final day is exactly how it becomes the thing that gets cut.
 
 Stack: Scipy, Numpy, NannyML, Evidently.
 
@@ -136,10 +136,10 @@ No new components. Week 4 absorbs overruns from Phases 0–C, which is what actu
 Deliverables:
 - All four tables populated with real numbers
 - README lede rewritten around the measured result — including if the result is "detectors don't predict degradation on this dataset"
-- Key Takeaways written per phase, null results included
+- Key Takeaways written per phase, unflattering results included
 - `prior_work.md` finalized
 
-**If and only if everything above is done early:** the deferred deployment layer (FastAPI `/predict` + `/health`, SQLite prediction log, Streamlit dashboard). Specified in `prd.md`, off the findings path, strictly optional.
+**If and only if everything above is done early:** the deferred deployment layer — Streamlit dashboard first, then FastAPI `/predict` + `/health` and the SQLite prediction log. Specified in `prd.md`. Adds no numbers to any table, adds something clickable to the README.
 
 ---
 
@@ -151,10 +151,10 @@ Deliverables:
 | **Too few batches for stable alert precision** | **High** | Report raw counts beside every ratio; drop to 14-day batches if span allows; Phase C engineered scenarios supply the large-N sensitivity numbers |
 | IEEE-CIS natural drift too small to detect | Medium | Phase 0 decision gate catches this on day 1; Phase C engineered drift becomes primary experiment |
 | MMD too slow on CPU for large batches | Medium | Subsample to n=2000 per side, fixed seed; PSI/KS run on full batch |
-| Ensemble adds nothing over best single detector | **Medium-high** | Expected outcome, not a failure. Reported as a null result with the vote-threshold ablation showing why |
+| Ensemble adds nothing over best single detector | **Medium-high** | Expected outcome, not a failure. Report it plainly, with the vote-threshold comparison showing why |
 | 8GB RAM insufficient for 400+ float64 columns | Medium | float32 downcast on load; drop columns above a missingness threshold; checked in Phase 0 |
 | LightGBM overfits reference window | Low | Early stopping on a *temporal* validation slice — never a random split, which leaks future data |
-| NannyML/Evidently produce identical results to ours | Low | That's a finding too: "hand-rolled detectors match production libraries" — publish honestly |
+| NannyML/Evidently produce identical results to ours | Low | Fine result: "hand-rolled detectors match the production libraries" — report it as-is |
 | Scope creep back into the deployment layer | Medium | It is specified and deferred. Not started until all four tables are populated |
 
 ---

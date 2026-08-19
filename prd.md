@@ -51,10 +51,10 @@ A drop-in monitoring sidecar: deploy it alongside any sklearn-compatible model, 
 - Streamlit: rolling drift score chart, feature distribution overlays, alert history
 - Optionally deployable to Streamlit Cloud (free tier)
 
-### 5. Drift Simulator (Research)
+### 5. Drift Simulator
 - Injects controlled drift scenarios for benchmarking detector sensitivity
 - Four modes: gradual feature shift, sudden concept drift, prior probability drift, covariate shift
-- Used to populate Table 3 (Phase C findings)
+- Used to populate Table 4 (Phase C)
 
 ---
 
@@ -97,5 +97,5 @@ Alert precision and recall are the primary targets. A detector with perfect reca
 
 - GPU-accelerated MMD (not needed at student-budget scale)
 - Kubernetes deployment (Docker Compose sufficient for demo)
-- Real-time streaming (batch-based monitoring covers the research questions)
+- Real-time streaming (batch-based monitoring covers everything this project asks)
 - Support for non-tabular data (images, text) — tabular fraud data only

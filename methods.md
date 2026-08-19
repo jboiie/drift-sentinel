@@ -139,7 +139,7 @@ Two specific failure modes to watch for:
 1. **Precision gain paid for in recall.** Requiring agreement suppresses false positives *and* genuine early warnings. If MMD alone catches a joint shift that PSI and KS structurally cannot see, the 2-of-3 rule vetoes the one detector that was right.
 2. **Landing between constituents.** The common outcome for majority votes over correlated members: worse than the best member, better than the worst, useful only if you did not know which member was best.
 
-Both are testable against Table 3. If the ensemble's alert precision does not exceed the best single detector's, that gets reported plainly — a null result on the ensemble is still a finding, and a more interesting one than another PSI implementation.
+Both are testable against Table 3. If the ensemble's alert precision does not exceed the best single detector's, that gets reported plainly — an ensemble that adds nothing is still a real answer, and a more interesting one than another PSI implementation.
 
 ### Ablation
 Run 1-of-3, 2-of-3, and 3-of-3 vote thresholds and report all three. The vote threshold is the ensemble's only real degree of freedom; showing the full sweep prevents cherry-picking whichever value happened to look best.
@@ -182,7 +182,7 @@ Precision answers "when it cried drift, was anything actually wrong?" Recall ans
 - **Absolute:** PR-AUC drops ≥ δ below the reference baseline (e.g. δ = 0.05)
 - **Relative:** PR-AUC drops ≥ δ% of baseline, more robust if baseline PR-AUC is itself low
 
-Whichever is chosen gets recorded here with its value, and the other is reported as a sensitivity check — if the ranking of detectors flips between the two, that instability is itself a finding.
+Whichever is chosen gets recorded here with its value, and the other is reported as a sensitivity check — if the ranking of detectors flips between the two, that instability is worth reporting on its own.
 
 **Small-sample caveat.** With only 4–5 batches, these are counts out of a handful, not stable rates. A single flipped batch swings precision by 20+ points. Two mitigations, both applied:
 
@@ -210,7 +210,7 @@ KS runs one test per feature. With 400+ features in IEEE-CIS, a naive p=0.05 thr
 Note the asymmetry this creates in Table 2: PSI has no multiple-testing correction because it produces a score rather than a p-value, so KS is held to a stricter standard than PSI by construction. This is documented rather than corrected, because both are being compared *as practitioners actually use them*.
 
 ### Why PR-AUC over ROC-AUC
-IEEE-CIS is roughly 3.5% fraud. Under imbalance that severe, ROC-AUC is dominated by true negatives and stays high even as the model's ranking of the positive class deteriorates — precisely the failure mode of interest. PR-AUC is sensitive to exactly that (Davis & Goadrich 2006). ROC-AUC is still reported, for comparability with published IEEE-CIS baselines which conventionally use it.
+IEEE-CIS is roughly 3.5% fraud. Under imbalance that severe, ROC-AUC is dominated by true negatives and stays high even as the model's ranking of the positive class deteriorates — precisely the failure mode of interest. PR-AUC is sensitive to exactly that (Davis & Goadrich 2006). ROC-AUC is still reported, so the numbers line up with the usual IEEE-CIS baselines, which conventionally use it.
 
 One consequence: the degradation threshold δ is defined on PR-AUC, so Table 3 may show degraded batches where ROC-AUC looks stable. That divergence is worth calling out in the writeup rather than smoothing over.
 
