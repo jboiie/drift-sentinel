@@ -48,8 +48,9 @@ A drop-in monitoring sidecar: deploy it alongside any sklearn-compatible model, 
 - Exit code 1 if drift exceeds threshold (enables CI pipeline gating)
 
 ### 4. Dashboard
-- Streamlit: rolling drift score chart, feature distribution overlays, alert history
-- Optionally deployable to Streamlit Cloud (free tier)
+- Static site generated from run output: alert markers overlaid on the performance curve, drift score timelines, feature distribution overlays, detector × scenario heatmap
+- Plotly charts, Jinja2 templates, no runtime and no server
+- Published to GitHub Pages off `main` → `/docs` (free, no cold start)
 
 ### 5. Drift Simulator
 - Injects controlled drift scenarios for benchmarking detector sensitivity

@@ -7,10 +7,11 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-design%20phase-orange.svg)]()
+[![Dashboard](https://img.shields.io/badge/dashboard-not%20yet%20live-lightgrey.svg)](https://jboiie.github.io/drift-sentinel/)
 
 *A drift monitor that grades its own alerts — do they predict model failure, or just notice that the data moved?*
 
-[Results](#-results) · [Pipeline](#-pipeline) · [Architecture](#-architecture) · [Drift Methods](#-drift-detection-methods) · [Quickstart](#-quickstart) · [Roadmap](#-roadmap)
+[Results](#-results) · [Dashboard](#-dashboard) · [Pipeline](#-pipeline) · [Architecture](#-architecture) · [Drift Methods](#-drift-detection-methods) · [Quickstart](#-quickstart) · [Roadmap](#-roadmap)
 
 </div>
 
@@ -169,8 +170,11 @@ Batch replay, not live serving. The experiment needs temporally-ordered batches 
           ║  ▶ alert precision / recall per detector         ║
           ╚═══════════════════════╤══════════════════════════╝
                                   ▼
-                     HTML report + JSON summary
+                     JSON summary + per-batch HTML report
                      exit code 1 if --fail-above breached
+                              │
+                              ▼
+                     docs/  →  GitHub Pages dashboard
 ```
 
 The two halves are deliberately isolated: the drift engine is label-blind, and labels enter only downstream to grade the alerts it already emitted. That separation is what makes the alert-precision number honest rather than circular.
@@ -202,6 +206,46 @@ Nothing is implemented yet. Status column reflects build order, not progress.
 | **Ensemble** | 2-of-3 vote across PSI + KS + MMD | *Hypothesis:* fewer false positives | May land between constituents, not above | 🔲 Phase B |
 | **NannyML / Evidently** | External reference implementations | Third-party, independently maintained | Not tuned to this dataset | 🔲 Phase B |
 | **ADWIN** | Concept drift via sliding window on error rate | Reacts to actual performance drop | Requires ground truth labels (delayed) | ❌ Out of scope — see [Roadmap](#-roadmap) |
+
+---
+
+## 📈 Dashboard
+
+> **Not built yet — Phase D.** Will live at **[jboiie.github.io/drift-sentinel](https://jboiie.github.io/drift-sentinel/)**.
+
+Tables 1–4 are the substance, but a table cannot show you an alert landing in the wrong place. The dashboard exists to make the project's central claim *visible in one screen*: drift alerts plotted directly on top of the model's actual performance curve, so anyone can see at a glance whether the alerts tracked the damage or fired into empty space.
+
+### Why static, not Streamlit
+
+| Option | Verdict |
+|---|---|
+| **Static HTML + Plotly on GitHub Pages** | **Chosen.** Loads instantly, never sleeps, ₹0 forever, works offline, reuses the Jinja2 + Plotly report generator already needed for Phase C |
+| Streamlit Cloud | Rejected. The free tier sleeps after inactivity — a visitor's first impression is a "waking up…" spinner |
+| React / Next.js SPA | Rejected. Weeks of work and a hosting story, to render six charts that do not need a runtime |
+| Notebook rendered to HTML | Rejected. Reads as homework, not as a product |
+
+No build step, no JS framework, no server. `python -m sentinel.dashboard` writes self-contained HTML into `docs/`, which GitHub Pages serves straight off `main`.
+
+### Panels
+
+| # | Panel | What it shows | Chart |
+|---|---|---|---|
+| 1 | **Scoreboard** | Alert precision and recall per detector, versus the never-alert and always-alert baselines. The headline numbers, oversized | Stat tiles + horizontal bars |
+| 2 | **The money chart** | PR-AUC over time as a line, with each detector's alerts as markers on the same x-axis, and degraded batches shaded | Overlaid time series |
+| 3 | **Drift score timeline** | Every detector's raw statistic per batch, thresholds drawn as reference lines | Small multiples |
+| 4 | **Feature explorer** | Reference vs incoming distribution for any feature, batch selectable | Overlaid histograms / KDE |
+| 5 | **Scenario matrix** | Detector × engineered drift type, coloured by batches-to-detection. The null-control column should be blank | Heatmap |
+| 6 | **Run provenance** | Seeds, batch boundaries, dataset span, library versions, timestamp | Plain table |
+
+Panel 2 is the one that matters. If the alert markers cluster on the drops, the detectors work. If they scatter across flat stretches, they don't — and that is equally worth seeing.
+
+### Design constraints
+
+- Dark theme by default, light theme respected via `prefers-color-scheme`
+- Fully responsive; every chart legible on a phone, since links get opened on phones
+- Self-contained: Plotly inlined, no CDN, no external fonts, page renders with the network off
+- Every number on the page is generated from `reports/*.json` — nothing typed by hand, same rule as the README
+- Panels 1, 2, 5 render as static PNG too, for embedding directly in the README
 
 ---
 
@@ -275,7 +319,12 @@ drift-sentinel/
 │   ├── evaluation/
 │   │   ├── metrics.py          # PR-AUC, ROC-AUC, F1 per batch
 │   │   └── alert_scorer.py     # ← THE POINT: alerts vs realized degradation
-│   └── report.py               # Static HTML report generator
+│   ├── report.py               # Per-batch static HTML report
+│   ├── dashboard.py            # Phase D: builds the full static site into docs/
+│   └── templates/
+│       ├── report.html.j2      # Single-batch report template
+│       ├── dashboard.html.j2   # Multi-panel dashboard template
+│       └── style.css           # Dark/light theme, inlined at build time
 │
 ├── scripts/
 │   ├── prepare_data.py         # Temporal split → reference + ordered batches
@@ -295,7 +344,10 @@ drift-sentinel/
 │   └── incoming/               # Ordered batches + engineered variants
 │
 ├── models/                     # Serialized weights (gitignored)
-├── reports/                    # Generated HTML/JSON (gitignored)
+├── reports/                    # Generated HTML/JSON per run (gitignored)
+├── docs/                       # ← COMMITTED: the published dashboard
+│   ├── index.html              # GitHub Pages serves this off main
+│   └── assets/                 # Exported PNGs for README embedding
 │
 ├── methods.md                  # Mathematical detail on PSI, KS, MMD, scoring
 ├── prd.md                      # North-star vision (explicitly aspirational)
@@ -306,7 +358,9 @@ drift-sentinel/
 └── .gitignore
 ```
 
-**Deferred (stretch):** `src/` FastAPI model server, `dashboard/` Streamlit app, SQLite prediction log. Good deployment-skills signal, but they contribute nothing to Tables 1–4. Built only if Phases 0–C finish with time remaining.
+`docs/` is the one generated directory that *is* committed — it is the published artifact, and GitHub Pages reads it directly from `main`.
+
+**Deferred (stretch):** `src/` FastAPI model server + SQLite prediction log. A live endpoint would be a deployment-skills signal, but the dashboard already covers "there is something to click," and the server still moves no number in any table.
 
 ---
 
@@ -377,6 +431,16 @@ python scripts/simulate_drift.py --mode gradual --feature TransactionAmt
 python scripts/simulate_drift.py --mode null      # control: should never alert
 ```
 
+### 7. Build the dashboard (Phase D)
+
+```bash
+python -m sentinel.dashboard --reports reports/ --out docs/
+# Renders every panel from reports/*.json into a self-contained docs/index.html
+# and exports panels 1, 2, 5 to docs/assets/*.png
+```
+
+Open `docs/index.html` directly — it has no server and no network dependencies. Pushing `docs/` to `main` publishes it to GitHub Pages.
+
 ---
 
 ## 💰 Cost & Compute
@@ -398,7 +462,7 @@ Known compute pressure points, both addressed in Phase B:
 
 ## 🔮 Roadmap
 
-One rule drives the plan: real numbers from a real dataset — no toy examples, no synthetic-only demos. Phases run in order; each one's output is the next one's input. Roughly four weeks of evenings.
+One rule drives the plan: real numbers from a real dataset — no toy examples, no synthetic-only demos. Phases run in order; each one's output is the next one's input. Roughly four to five weeks of evenings.
 
 ### Phase 0 — Premise Validation (Day 1)
 Cheapest possible check that the project's core assumption holds, before any detector is written.
@@ -434,10 +498,19 @@ Controlled drift with known ground truth, measuring sensitivity by drift type.
 - [ ] Fill Table 4
 - [ ] Write up which detector catches which drift type, and which it misses
 
-### Stretch — Deployment Layer
-Only after Tables 1–4 are populated. Adds no numbers to any table; adds something clickable.
+### Phase D — Dashboard
+The results, made visible. Runs only on data already produced by Phases A–C — it visualises, it never computes.
+- [ ] `sentinel/dashboard.py` — reads `reports/*.json`, writes a self-contained site to `docs/`
+- [ ] Panel 2 first: PR-AUC over time with alert markers overlaid — the chart the whole project argues for
+- [ ] Panels 1, 3, 5 — scoreboard, drift timelines, scenario heatmap
+- [ ] Panels 4, 6 — feature explorer, run provenance
+- [ ] Dark/light theming, responsive layout, Plotly inlined for offline rendering
+- [ ] Enable GitHub Pages on `main` → `/docs`, confirm the URL loads cold in under a second
+- [ ] Export panels 1, 2, 5 as PNG and embed them in this README
+
+### Stretch — Model Server
+Genuinely optional. Adds no numbers and nothing visual.
 - [ ] FastAPI `/predict` + `/health`, SQLite prediction log
-- [ ] Streamlit dashboard: drift score over time, alert log
 
 ### Explicitly Out of Scope
 
@@ -457,6 +530,7 @@ Built as a personal project — no paper, no team, no budget. What it exercises:
 | **Statistics** | PSI, KS with multiple-testing correction, MMD with a kernel permutation test — implemented from the math, not called from a library |
 | **Evaluation design** | Label-free detection graded against withheld labels, trivial baselines on both ends, a null control for false positives |
 | **Judgement** | Knowing that "I built a drift monitor" is a commodity, and that "I measured whether the monitor was worth listening to" is not |
+| **Data visualisation** | A published static dashboard: alert markers overlaid on the performance curve, small multiples, a scenario heatmap — themed, responsive, and generated entirely from run output |
 | **Engineering practice** | One detector interface, tests on synthetic data with no dataset dependency, seeded runs, CI-friendly exit codes, HTML reports |
 | **Scoping** | A deployment layer that was specified, costed at a week, and cut because it moved no number — documented rather than quietly dropped |
 

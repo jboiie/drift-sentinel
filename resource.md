@@ -8,7 +8,7 @@
 
 - **Hardware**: laptop, 8GB RAM, CPU only — no GPU
 - **Budget**: ₹0. Free-tier everything.
-- **Time**: ~3–4 weeks alongside coursework
+- **Time**: ~4–5 weeks alongside coursework
 - **Dataset**: IEEE-CIS Fraud Detection (Kaggle, free download, ~500MB)
 
 ---
@@ -23,14 +23,18 @@
 | Real-time streaming | Batch replay | Batch answers every question here; streaming adds infra complexity and no new numbers |
 | Kubernetes | Nothing | Nothing in this project needs an orchestrator |
 | **FastAPI model server** | **Cut to stretch** | Changes no table. Batch replay answers everything offline |
-| **Streamlit dashboard** | **Cut to stretch** | Static HTML report already makes results sharable |
-| **SQLite / Supabase prediction log** | **Cut to stretch** | Only needed by the server that was cut. Batches are CSVs on disk |
+| **Streamlit dashboard** | **Replaced, and promoted to Phase D** | Built as a static Plotly site on GitHub Pages instead — no cold start, no hosting, same charts |
+| **SQLite / Supabase prediction log** | **Cut to stretch** | Only needed by the server that was cut. Batches are CSVs on disk, run output is JSON |
 
 ### On cutting the deployment layer
 
 The server, dashboard, and prediction log were roughly a week of the original four. None of them move a number in Tables 1–4. That week buys the alert-scorer work in Phase B — the only part of this project that isn't already in a hundred other drift-detection repos.
 
-The tradeoff is real, and it cuts differently for a portfolio project: a dashboard and a live `/predict` endpoint are things someone can *click*, and a table of numbers is not. The call here is that the alert-scorer is what makes the project memorable in an interview, and the deployment layer stays fully specified so it can be bolted on the moment Phases 0–C land. If time is tight at the end, ship the Streamlit dashboard before the FastAPI server — one screenshot in the README does more work than an endpoint nobody hits.
+The tradeoff is real, and it cuts differently for a portfolio project: something someone can *click* beats a table of numbers, every time.
+
+So the dashboard came back — as Phase D, not as a stretch goal, and not as Streamlit. A static Plotly site published to GitHub Pages costs a fraction of a Streamlit Cloud deployment to maintain (nothing to maintain), never sleeps, and reuses the Jinja2 + Plotly generator Phase C needs anyway. The FastAPI server stays cut: it is the half of the deployment layer that produces nothing to look at.
+
+Phase D is deliberately last. It reads `reports/*.json` and renders — it computes nothing. That ordering means a dashboard slipping cannot damage Tables 1–4, and a Phase D that runs out of time still ships panels 1 and 2, which carry the argument on their own.
 
 ---
 
@@ -129,17 +133,44 @@ Stack: Jinja2, Plotly (embedded HTML charts).
 
 ---
 
-### Week 4 — Writeup and Buffer
+### Phase D — Dashboard (Week 4)
 
-No new components. Week 4 absorbs overruns from Phases 0–C, which is what actually happens to week-4 plans.
+**Goal:** make the results visible in one screen, at a URL that loads instantly and never sleeps.
+
+Nothing here computes anything. Phase D reads the JSON that Phases A–C already wrote and renders it, which is why it is safe to put last: if it slips, the numbers are unaffected.
+
+Deliverables:
+- `sentinel/dashboard.py` — `reports/*.json` → self-contained static site in `docs/`
+- `sentinel/templates/dashboard.html.j2` + `style.css` — one template, one stylesheet, Plotly inlined, no CDN and no JS framework
+- Six panels, in strict build order:
+  1. **Panel 2 — PR-AUC over time with alert markers overlaid.** Built *first*, because it is the chart the entire project argues for. If nothing else ships, this does
+  2. Panel 1 — alert precision/recall scoreboard with baselines, oversized stat tiles
+  3. Panel 5 — detector × scenario heatmap, batches-to-detection, null-control column blank
+  4. Panel 3 — per-detector drift score timelines as small multiples with threshold lines
+  5. Panel 4 — reference vs incoming feature distributions, batch selectable
+  6. Panel 6 — run provenance: seeds, boundaries, dataset span, versions
+- Dark theme default, light via `prefers-color-scheme`, responsive down to phone width
+- GitHub Pages enabled on `main` → `/docs`; cold load verified under one second
+- Panels 1, 2, 5 exported to PNG and embedded in the README
+
+**Hard rule, same as the README's:** every number rendered comes from a JSON file the pipeline wrote. Nothing is typed into a template by hand.
+
+Stack: Jinja2, Plotly, Kaleido (PNG export). No new services, no hosting bill.
+
+---
+
+### Week 5 — Writeup and Buffer
+
+No new components. Absorbs overruns from Phases 0–D, which is what actually happens to final-week plans.
 
 Deliverables:
 - All four tables populated with real numbers
 - README lede rewritten around the measured result — including if the result is "detectors don't predict degradation on this dataset"
 - Key Takeaways written per phase, unflattering results included
+- Dashboard URL live and linked from the README badge
 - `prior_work.md` finalized
 
-**If and only if everything above is done early:** the deferred deployment layer — Streamlit dashboard first, then FastAPI `/predict` + `/health` and the SQLite prediction log. Specified in `prd.md`. Adds no numbers to any table, adds something clickable to the README.
+**If and only if everything above is done early:** the FastAPI `/predict` + `/health` server and SQLite prediction log. Specified in `prd.md`. Adds no numbers and nothing visual — genuinely optional.
 
 ---
 
@@ -155,7 +186,8 @@ Deliverables:
 | 8GB RAM insufficient for 400+ float64 columns | Medium | float32 downcast on load; drop columns above a missingness threshold; checked in Phase 0 |
 | LightGBM overfits reference window | Low | Early stopping on a *temporal* validation slice — never a random split, which leaks future data |
 | NannyML/Evidently produce identical results to ours | Low | Fine result: "hand-rolled detectors match the production libraries" — report it as-is |
-| Scope creep back into the deployment layer | Medium | It is specified and deferred. Not started until all four tables are populated |
+| Scope creep back into the deployment layer | Medium | Only the dashboard came back, as Phase D. The FastAPI server stays deferred and is not started until all four tables are populated |
+| Phase D dashboard eats the buffer week | Medium | Phase D computes nothing, so slipping it costs no results. Panel 2 is built first; a half-finished Phase D still ships the chart that carries the argument |
 
 ---
 
@@ -172,5 +204,6 @@ Deliverables:
 - Every stochastic step seeded; a rerun reproduces every cell
 - README contains zero numbers that were not produced by running the code
 - Tests cover the detectors and the alert-scorer arithmetic
+- Dashboard live at `jboiie.github.io/drift-sentinel`, cold-loading in under a second, every number on it generated from pipeline JSON
 
 Test count is deliberately not a target. Coverage of the detector math and the scoring logic is what matters; "48+ tests" measures typing, not correctness.

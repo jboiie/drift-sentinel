@@ -23,6 +23,9 @@ models/*.json
 reports/*.html
 reports/*.json
 
+# NOTE: docs/ is generated too, but is deliberately NOT ignored —
+# it is the published dashboard, served by GitHub Pages off main.
+
 # Notebooks checkpoints
 .ipynb_checkpoints/
 
