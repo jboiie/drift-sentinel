@@ -1,6 +1,43 @@
-# Prior Projects
+# Prior Work
 
-Drift Sentinel is the third in a series. Each one is about catching a system failing before anyone notices — same instinct, different domain.
+Drift Sentinel's detection engine isn't new. It's a standalone port of a
+subsystem built for a larger project, extracted because the idea behind
+it — a monitor that grades its own alerts — deserved its own repo instead
+of staying buried inside a bigger one.
+
+---
+
+## ARGUS
+
+The direct source. ARGUS is an agentic commerce system: an LLM support
+agent with a cart, checkout via mandate-gated payment confirmation, and a
+red-team harness attacking it for prompt-injection and payment-integrity
+failures. Deep in that system was a "drift sentinel" subsystem — the exact
+code this repo now contains — built to answer a narrower question buried
+inside the bigger project: *does the support agent's answer still match
+the catalog and policy data it's supposed to be grounded in?*
+
+That subsystem was built and proven against a real, live agent. Two of
+its design decisions exist specifically because a real bug was found and
+fixed during that build, not because they were theorized in advance — see
+[methods.md](methods.md) for both (a price-extraction regex grabbing the
+wrong number, and a faithfulness score cratering when the check context
+didn't cover the full multi-claim answer a broad question elicits).
+
+**What got left behind, deliberately:** the cart, checkout, mandate
+confirmation flow, Razorpay payment integration, red-team attack harness,
+and Supabase telemetry. All real and load-bearing in ARGUS. None of them
+relevant to whether a drift monitor's flags are worth a reviewer's time —
+carrying them over would have made this repo a fork of ARGUS instead of a
+standalone project about one specific, interesting idea.
+
+**What changed in the port**, beyond deleting unused code:
+- The reference agent lost its coupon/discount-blocking system-prompt
+  logic, which existed only to support the cart flow
+- Supabase logging became a local JSON file, matching this project's
+  no-server, no-database posture
+- The Groq judge model lost its DeepEval/DeepTeam base-class dependency,
+  needed only for ARGUS's red-team harness
 
 ---
 
@@ -8,32 +45,38 @@ Drift Sentinel is the third in a series. Each one is about catching a system fai
 
 [github.com/jboiie/prompt-autopsy](https://github.com/jboiie/prompt-autopsy)
 
-The first project. 20 real jailbreak prompts fired at a Groq-hosted LLM, classified as success/refusal using heuristic regex patterns, with per-category Attack Success Rate (ASR) computed and reported.
+20 real jailbreak prompts fired at a Groq-hosted LLM, classified as
+success/refusal, with per-category Attack Success Rate computed and
+reported.
 
-**What it taught:** how to design an evaluation pipeline — reference set of inputs, automated classification of outputs, aggregate metric over a corpus. The same structure (reference corpus → automated scoring → aggregate metric) is the skeleton of Drift Sentinel's monitoring pipeline.
-
----
+**What it taught:** how to design an evaluation pipeline — reference
+corpus → automated scoring → aggregate metric. The same skeleton
+underlies `drift/sampler.py`: a fixed set of questions, checked
+automatically, rolled up into one number that matters (the false-positive
+rate).
 
 ## PAIR-Lab
 
 [github.com/jboiie/pair-lab](https://github.com/jboiie/pair-lab)
 
-The second project. A faithful Python implementation of the PAIR algorithm (Chao et al. 2023) — one LLM iteratively attacking another, scored by a judge LLM, with ASR and iterations-to-success tracked.
+A Python implementation of the PAIR algorithm — one LLM iteratively
+attacking another, scored by a judge LLM.
 
-**What it taught:** that adaptive adversaries (LLMs that update their attack based on feedback) break static defenses far more effectively than fixed-corpus attacks. A LightGBM fraud classifier faces the same dynamic: fraud patterns adapt to detection, which is exactly why a static trained model degrades over time. The "attacker adapts to defender" problem in LLM security and the "distribution shifts over time" problem in production ML are structurally the same problem.
+**What it taught:** using an LLM as a judge, with a structured schema
+response, rather than parsing free text — the same pattern
+`judge/groq_model.py` and RAGAS's `Faithfulness` scorer both use here.
 
 ---
 
 ## How They Connect
 
-The three projects form a coherent arc:
-
 | Project | Core Question | Core Method |
 |---|---|---|
-| Prompt-Autopsy | How often do static defenses fail against a fixed attack corpus? | ASR measurement over a labeled corpus |
-| PAIR-Lab | How much worse does it get when the attacker adapts? | Iterative LLM-vs-LLM attack loop |
-| Drift Sentinel | Do the standard failure detectors actually predict failure? | Label-free drift detection, alerts graded against withheld labels |
+| Prompt-Autopsy | How often do static defenses fail against a fixed attack corpus? | ASR over a labeled corpus |
+| PAIR-Lab | How much worse does it get when the attacker adapts? | Iterative LLM-vs-LLM attack loop, LLM-as-judge |
+| ARGUS | Can an agentic commerce system resist real attacks *and* stay factually grounded? | Red-team harness + drift sentinel, side by side |
+| **Drift Sentinel** | Is a drift monitor's flag ever worth a human's time? | The drift-sentinel half of ARGUS, extracted and made to stand on its own |
 
-All three are the same kind of problem: how do you measure failure *before* users see it, and how do you keep the measurement honest instead of self-congratulatory?
-
-The progression is in what gets measured. Prompt-Autopsy measured a system's failure rate. PAIR-Lab measured how that rate moves under an adaptive adversary. Drift Sentinel turns the instrument on itself — measuring not whether the model fails, but whether the thing that is supposed to warn you about failure is any good at it. Each project moves one level up: system, then attacker, then monitor.
+The throughline: every one of these projects measures failure before a
+user has to find it themselves, and none of them stop at "does it fire" —
+each one goes one step further and asks whether firing means anything.
