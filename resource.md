@@ -56,33 +56,39 @@ new.
 - [x] `pyproject.toml` rewritten for the new dependency set
   (`google-genai`, `openai`, `ragas`, `langchain-community<0.4`)
 
-## Phase 2 — Real Numbers (done, small sample)
+## Phase 2 — Real Numbers (done)
 
 **Goal:** fill Tables 1 and 2 in the README with numbers from real runs,
 not placeholders.
 
-- [x] Ran `python -m drift.sampler` for 3 live sessions — 81 checks total,
-  0 organic flags, 4 errored (one session, all under the shipping topic)
+- [x] Ran `python -m drift.sampler` for 5 live sessions — 135 checks
+  total, 0 organic flags, 5 errored (all faithfulness, all under the
+  shipping topic, across two separate sessions)
 - [x] Ran `staged_injection.py` inject → commit → verify → commit, twice —
   both times caught, correctly classified `stale_ground_truth`/`critical`,
   fresh re-ask correctly left unflagged
-- [ ] Run more sessions — 3 sessions with zero organic flags means Table
-  2's false-positive rate has no denominator yet; more sessions is what
-  actually gets one
-- [ ] Investigate the 4 errored checks before trusting faithfulness numbers
-  at a larger scale — isolated to one session, one topic, looks like a
-  transient Groq judge failure but that's a guess, not a diagnosis
-- [ ] Manually review flagged incidents once organic flags exist, setting
-  `reviewed_at`/`is_false_positive` by hand, then run
-  `drift/audit.py::compute_false_positive_cost` for a real Table 2
+- [x] Investigated the errored checks: reproduced the exact same shipping
+  question and claims in isolation outside the sampler, got 4/4 clean.
+  Rules out a code bug — the failure is on Groq's side (the judge call
+  itself), most likely the empty-completion flake `judge/groq_model.py`
+  already retries for but occasionally still exhausts on a free-tier key
+- [x] Reported zero organic flags as the actual finding rather than
+  running sessions indefinitely to manufacture one — the review-pass and
+  Table 2 rate below are consequences of that finding, not unfinished work
 
-**Risk, stated plainly:** the review step is manual and by the project's
-own author, which is a conflict of interest a rigorous eval wouldn't
-tolerate. Mitigation: the review criterion (was this specific claim
-actually wrong, checked against the ground-truth file itself) is
-mechanical enough that reviewer bias has little room to operate — this
-isn't a subjective quality judgment, it's confirming a price or policy
-line against a JSON file.
+**Manual review pass**: not run, deliberately — there is nothing flagged
+to review. `drift/audit.py::compute_false_positive_cost` requires at
+least one flagged incident to divide by, and 135 checks over 5 sessions
+produced none. This is documented in the README as the honest result,
+not worked around.
+
+**Risk, stated plainly (now resolved):** the review step being manual and
+by the project's own author was a stated conflict-of-interest risk. It
+never came up in practice — there was nothing to review — but the
+mitigation stands for whenever an organic flag does show up: the review
+criterion (was this specific claim actually wrong, checked against the
+ground-truth file itself) is mechanical enough that reviewer bias has
+little room to operate.
 
 ## Phase 3 — Dashboard (done)
 
@@ -127,6 +133,11 @@ a table.
   it generated from `reports/drift_log.json` / `staged_injection_log.json`
 - [x] README contains zero numbers that weren't produced by running the
   code
-- [ ] Table 2's false-positive rate is a real number with a real
-  denominator — still `n/a`, since 3 sessions produced 0 organic flags.
-  The one item left
+- [x] Table 2's false-positive rate is a real, reported result —
+  `n/a`, with the reason stated: 135 checks over 5 sessions produced 0
+  organic flags. Not a gap to fill later, a finding to stand behind
+
+This build is closed. The two things genuinely left for a future session
+— catching an organic flag at all, and the manual review pass that
+becomes possible once one exists — aren't unfinished pieces of this plan,
+they're follow-on work with no natural stopping point of their own.

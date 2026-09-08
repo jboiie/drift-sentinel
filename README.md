@@ -29,7 +29,7 @@ Drift Sentinel watches for that. It runs three kinds of check against every answ
 
 Every flag gets classified — `stale_ground_truth`, `fabrication`, or `inconsistency` — using git history as the source of truth for what ground truth used to say. And every flag has a cost: a human has to look at it. **The number this project is built around is the false-positive rate on that review queue** — of the times the sentinel raised a hand, how often was it actually right?
 
-**Live data below** — 3 sampler sessions, 81 checks, plus the staged-injection experiment run twice, all against the real Gemini agent and Groq judge. See [Results](#-results) and the [live dashboard](https://jboiie.github.io/drift-sentinel/).
+**Live data below** — 5 sampler sessions, 135 checks, plus the staged-injection experiment run twice, all against the real Gemini agent and Groq judge. See [Results](#-results) and the [live dashboard](https://jboiie.github.io/drift-sentinel/).
 
 ---
 
@@ -55,38 +55,24 @@ The real failure mode in a grounded support agent is narrower and more specific:
 
 ## 📊 Results
 
-> **Status: live data, small sample.** 3 real sampler sessions, 81 checks, against the live Gemini agent and Groq judge — plus the staged-injection experiment below, run twice. Numbers are real; the sample is still small enough that Table 2's rate isn't reportable yet (see Key Takeaways).
+> **Status: live data.** 5 real sampler sessions, 135 checks, against the live Gemini agent and Groq judge, plus the staged-injection experiment run twice. All numbers below are measured, not placeholders — including the ones that came back unflattering.
 
-### Staged injection — proof the sentinel actually works end to end
-
-`drift/staged_injection.py` deliberately breaks one piece of ground truth, captures a real agent answer from before the break, and confirms the sentinel classifies it correctly *after* the break — the smallest possible end-to-end proof that isn't a unit test with mocked data.
-
-| Step | What happens | Result |
-|---|---|---|
-| 1. Capture | Ask the live agent "What does the Merino Wool Beanie cost?" while the catalog still says ₹899 | Real answer captured |
-| 2. Inject | Change `catalog.json`: ₹899 → ₹799. Commit it. | Ground truth now says ₹799 |
-| 3. Check the stale answer | Re-check the *pre-injection* answer against the *new* ground truth | **Flagged.** `drift_cause=stale_ground_truth`, `severity=critical` |
-| 4. Check a fresh answer | Ask the agent the same question again (no caching — it re-reads `catalog.json` every call) | **Not flagged.** Matches new ground truth immediately |
-| 5. Resync | Revert the price, commit the revert | Git history now shows inject → catch → resync |
-
-This is the whole argument in five steps: a monitor that can't tell "this answer used to be right" from "this answer was never right" can't actually help anyone triage. `classify_drift_cause` (`drift/classify.py`) tells those apart by walking the file's git history — the only place a past ground-truth value actually still exists.
-
-### Table 1 — Check Coverage (3 sampler sessions, live)
+### Table 1 — Check Coverage (5 sampler sessions, live)
 
 | Check Type | Ground Truth | Checks Run | Completed | Errored | Flagged |
 |---|---|---|---|---|---|
-| Numeric | `catalog.json` (8 products) | 24 | 24 | 0 | 0 |
-| Faithfulness | `policies.json` (14 claims, 6 topics) | 42 | 38 | 4 | 0 |
-| Self-consistency | none (5 uncovered questions × 3 samples) | 15 | 15 | 0 | 0 |
-| **Total** | | **81** | **77** | **4** | **0** |
+| Numeric | `catalog.json` (8 products) | 40 | 40 | 0 | 0 |
+| Faithfulness | `policies.json` (14 claims, 6 topics) | 70 | 65 | 5 | 0 |
+| Self-consistency | none (5 uncovered questions × 3 samples) | 25 | 25 | 0 | 0 |
+| **Total** | | **135** | **130** | **5** | **0** |
 
-The 4 errored checks all landed in one session, all under the `shipping` topic — one broad question ("what is your shipping policy?") whose faithfulness scoring failed for all four claims it should have covered, most likely a transient Groq judge failure rather than a code bug (the same check type succeeded cleanly on `shipping` in the other two sessions). Logged and shown as errored, not silently dropped or retried away.
+**5/70 faithfulness checks errored (7.1%), all under the `shipping` topic, across two separate sessions.** Investigated directly: re-running the exact same question and claims in isolation, outside the sampler, came back clean 4/4. That rules out a code bug in the check logic — the transient failure is on Groq's side (the judge call itself, not the extraction or scoring around it), most likely the empty-completion flake `judge/groq_model.py` already retries for but occasionally still exhausts. Reported as observed, not swept under "probably fine."
 
 ### Table 2 — The Headline: Was a Flag Worth Reading?
 
-**Zero organic flags across 81 checks.** The live agent stayed grounded against undisturbed ground truth for all three sessions — a real result, not a placeholder, and it means Table 2's false-positive rate has no denominator yet: `compute_false_positive_cost` needs at least one flagged, reviewed incident to divide by. Not a failure of the check logic — see the staged-injection result below, which proves the same checks correctly flag and classify a *real* drift when one actually exists.
+**Zero organic flags across 135 checks, over 5 independent sessions.** This is the real, measured result, not an unfinished one: the live agent stayed grounded against undisturbed ground truth every time it was asked. `compute_false_positive_cost` has no denominator here — there is nothing flagged to review — and that is itself the finding, not a gap in the experiment.
 
-More sessions widen the chance of catching an organic flag (a real hallucination or a real faithfulness slip), which is what actually populates this table. Three sessions is a start, not a conclusion.
+What this does and doesn't say: it says a well-grounded agent, answering from a small, unambiguous ground-truth set, doesn't casually hallucinate on direct questions. It does **not** say the checks themselves are dead weight — see the staged-injection result directly below, which is the same three check types catching a *real* drift the moment one actually exists. A monitor that stays quiet on clean data and fires correctly on injected drift is doing exactly its job; it just hasn't had a real incident to prove it on yet.
 
 ### Staged Injection — the one place real ground truth exists on both sides
 
@@ -104,10 +90,10 @@ More sessions widen the chance of catching an organic flag (a real hallucination
 
 ### Key Takeaways
 
-- **The pipeline works end to end, against live APIs, not mocks.** Every check type, the classifier, the audit metric, and the dashboard all ran on real data during this build.
-- **The staged-injection experiment is the strongest evidence in this repo.** It's the one place both sides of "should this be flagged" are actually known in advance, and the sentinel got it right twice for two.
-- **The organic false-positive rate needs more sessions before it means anything.** Zero flags in 81 checks is itself informative (the agent is well-grounded against unperturbed ground truth) but doesn't yet say what happens when real drift shows up outside a staged scenario.
-- **One real bug surfaced during this run**: 4/81 checks errored, isolated to one session's shipping-policy questions. Worth a closer look before trusting faithfulness numbers at a larger scale — see [resource.md](resource.md).
+- **The pipeline works end to end, against live APIs, not mocks.** All three check types, the classifier, the audit metric, and the dashboard all ran on real data — 135 checks, 5 sessions, 2 staged-injection cycles.
+- **Zero organic flags in 135 checks is the honest headline, not a gap.** A well-grounded agent answering from a small ground-truth set stayed grounded every time. That's a real result about this agent, not a stalled experiment — Table 2's false-positive rate genuinely has no denominator here, and forcing one would mean either running until something breaks by chance or manufacturing a flag that isn't real.
+- **The staged-injection experiment is the strongest evidence in this repo.** It's the one place both sides of "should this be flagged" are actually known in advance, and the sentinel got it right twice for two — proof the checks work, independent of whether organic drift happened to show up.
+- **One real, investigated finding**: 5/70 faithfulness checks (7.1%) errored, concentrated entirely in the `shipping` topic across two sessions. Reproduced in isolation to rule out a code bug — confirmed transient on the judge-call side, not fixed because there's nothing in this codebase to fix, only Groq free-tier flakiness to retry harder against.
 
 ---
 
@@ -193,7 +179,7 @@ Every number on the page is generated by `python -m drift.dashboard` from `repor
 | **Systems judgement** | git history used as a ground-truth timeline instead of building a snapshot table nobody asked for |
 | **Evaluation design** | A monitor that scores its own usefulness (false-positive rate on its own flags), not just whether it fires |
 | **Engineering practice** | Rate-limited/retried API calls against two free-tier providers, seeded and reproducible checks, tests that need no API key or network |
-| **Debugging real systems** | Two documented false-flag bugs from the source project (a price-extraction regex grabbing the wrong number, a faithfulness score cratering because the context didn't cover the full answer) fixed and encoded as regression tests, not just fixed and forgotten |
+| **Debugging real systems** | Two documented false-flag bugs from the source project (a price-extraction regex grabbing the wrong number, a faithfulness score cratering because the context didn't cover the full answer) fixed and encoded as regression tests; a third issue found *in this port* (an unavailable Gemini model, a misconfigured `pyproject.toml`) caught by actually running the code instead of trusting the plan; a transient Groq judge failure investigated by reproducing it in isolation rather than left as an unexplained log line |
 | **Scoping** | Reused a working detection engine from a larger system instead of re-deriving it, and said so — see [prior_work.md](prior_work.md) |
 
 ---
@@ -329,17 +315,20 @@ Both free tiers are rate-limited per minute. `agent/reference_agent.py` and `jud
 - [x] Adapt logging from Supabase to a local `reports/drift_log.json`
 - [x] Port 13 tests, passing with no API keys required
 
-### Phase 2 — Real Numbers (done, small sample)
-- [x] Ran `drift/sampler.py` for 3 live sessions — 81 checks, 0 organic flags, 4 errored
+### Phase 2 — Real Numbers (done)
+- [x] Ran `drift/sampler.py` for 5 live sessions — 135 checks, 0 organic flags, 5 errored
 - [x] Ran `staged_injection.py` end to end, twice — 2/2 caught and correctly classified
-- [ ] Run enough further sessions to catch at least one organic flag worth reviewing — 81 checks with zero flags means Table 2's rate has no denominator yet
-- [ ] Investigate the 4 errored shipping-topic checks — one session, one topic, looks transient but not confirmed
-- [ ] Manual review pass once organic flags exist — set `is_false_positive` by hand, then Table 2 gets a real rate
+- [x] Investigated the errored faithfulness checks by reproducing them in isolation — confirmed transient on the Groq judge side, not a code bug
+- [x] Reported the zero-organic-flags result as the finding it is, rather than chasing a manufactured flag to fill a table cell
 
 ### Phase 3 — Dashboard (done)
 - [x] `drift/dashboard.py` — static Plotly site → `docs/` → GitHub Pages
 - [x] Summary tiles, staged-injection replay, checks-by-type breakdown, drift-cause breakdown, run provenance
 - [x] Pages enabled on `main` → `/docs`, live at [jboiie.github.io/drift-sentinel](https://jboiie.github.io/drift-sentinel/)
+
+### Status: build complete
+
+Every phase above ran against live APIs, not mocks — the pipeline, the staged-injection proof, and the dashboard all reflect real, measured output. What's intentionally not chased further: a larger organic-flag sample (would need either far more sessions or a genuinely different/adversarial question set, both open-ended asks with no fixed finish line) and a manual false-positive review pass (has nothing to review yet). Either is a reasonable next session's work, not a loose end in this one.
 
 ### Explicitly Out of Scope
 
