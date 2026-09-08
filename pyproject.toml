@@ -19,6 +19,7 @@ dependencies = [
     "langchain-community<0.4",  # ragas imports langchain_community.chat_models.vertexai directly; removed in 0.4
     "pydantic>=2.4",
     "python-dotenv>=1.0",
+    "plotly>=5.18",
 ]
 
 [project.urls]
