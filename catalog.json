@@ -1,0 +1,66 @@
+[
+  {
+    "id": "prod_001",
+    "name": "Wireless Mechanical Keyboard",
+    "price": 3499,
+    "description": "Compact 75% layout mechanical keyboard with hot-swappable switches and Bluetooth 5.0 connectivity.",
+    "category": "electronics",
+    "stock": 24
+  },
+  {
+    "id": "prod_002",
+    "name": "Ceramic Pour-Over Coffee Set",
+    "price": 1299,
+    "description": "Hand-glazed ceramic dripper with matching carafe, holds up to 600ml.",
+    "category": "home",
+    "stock": 40
+  },
+  {
+    "id": "prod_003",
+    "name": "Merino Wool Beanie",
+    "price": 899,
+    "description": "Lightweight merino wool beanie, one size fits most, machine washable.",
+    "category": "apparel",
+    "stock": 60
+  },
+  {
+    "id": "prod_004",
+    "name": "Stainless Steel Water Bottle 1L",
+    "price": 749,
+    "description": "Double-walled insulated bottle, keeps drinks cold for 24 hours or hot for 12.",
+    "category": "home",
+    "stock": 100
+  },
+  {
+    "id": "prod_005",
+    "name": "Leather Bifold Wallet",
+    "price": 1599,
+    "description": "Full-grain leather bifold wallet with six card slots and a coin pocket.",
+    "category": "accessories",
+    "stock": 35
+  },
+  {
+    "id": "prod_006",
+    "name": "Portable Bluetooth Speaker",
+    "price": 2199,
+    "description": "IPX6 water-resistant speaker with 12-hour battery life and USB-C charging.",
+    "category": "electronics",
+    "stock": 18
+  },
+  {
+    "id": "prod_007",
+    "name": "Cast Iron Skillet 10-inch",
+    "price": 1899,
+    "description": "Pre-seasoned cast iron skillet, oven safe up to 500F.",
+    "category": "home",
+    "stock": 22
+  },
+  {
+    "id": "prod_008",
+    "name": "Canvas Tote Bag",
+    "price": 599,
+    "description": "Heavyweight cotton canvas tote with reinforced stitching, holds up to 15kg.",
+    "category": "accessories",
+    "stock": 80
+  }
+]
