@@ -11,9 +11,6 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "JAI", email = "jai19kharb@gmail.com" }]
 
-[project.urls]
-Repository = "https://github.com/jboiie/drift-sentinel"
-
 # Core: everything needed to run the drift checks and the sampler.
 dependencies = [
     "google-genai>=0.5",
@@ -24,11 +21,17 @@ dependencies = [
     "python-dotenv>=1.0",
 ]
 
+[project.urls]
+Repository = "https://github.com/jboiie/drift-sentinel"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4",
     "ruff>=0.1",
 ]
+
+[tool.setuptools]
+packages = ["agent", "drift", "judge"]
 
 [tool.ruff]
 line-length = 88
