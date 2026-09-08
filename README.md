@@ -6,8 +6,8 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-in%20build-orange.svg)]()
-[![Dashboard](https://img.shields.io/badge/dashboard-not%20yet%20live-lightgrey.svg)](https://jboiie.github.io/drift-sentinel/)
+[![Status](https://img.shields.io/badge/status-live%20data-brightgreen.svg)]()
+[![Dashboard](https://img.shields.io/badge/dashboard-live-brightgreen.svg)](https://jboiie.github.io/drift-sentinel/)
 
 *A drift monitor that grades its own alerts — do they catch a real problem, or just add noise nobody reads?*
 
@@ -29,7 +29,7 @@ Drift Sentinel watches for that. It runs three kinds of check against every answ
 
 Every flag gets classified — `stale_ground_truth`, `fabrication`, or `inconsistency` — using git history as the source of truth for what ground truth used to say. And every flag has a cost: a human has to look at it. **The number this project is built around is the false-positive rate on that review queue** — of the times the sentinel raised a hand, how often was it actually right?
 
-**No results yet.** Every number below gets filled in by running the pipeline. `staged_injection.py` is the one experiment that already runs end to end — see [Results](#-results).
+**Live data below** — 3 sampler sessions, 81 checks, plus the staged-injection experiment run twice, all against the real Gemini agent and Groq judge. See [Results](#-results) and the [live dashboard](https://jboiie.github.io/drift-sentinel/).
 
 ---
 
@@ -55,7 +55,7 @@ The real failure mode in a grounded support agent is narrower and more specific:
 
 ## 📊 Results
 
-> **Status: build in progress.** The sampler (`drift/sampler.py`) needs to run across enough real sessions to populate a false-positive rate with a denominator worth reporting. What's below is what already runs and passes today.
+> **Status: live data, small sample.** 3 real sampler sessions, 81 checks, against the live Gemini agent and Groq judge — plus the staged-injection experiment below, run twice. Numbers are real; the sample is still small enough that Table 2's rate isn't reportable yet (see Key Takeaways).
 
 ### Staged injection — proof the sentinel actually works end to end
 
@@ -71,52 +71,61 @@ The real failure mode in a grounded support agent is narrower and more specific:
 
 This is the whole argument in five steps: a monitor that can't tell "this answer used to be right" from "this answer was never right" can't actually help anyone triage. `classify_drift_cause` (`drift/classify.py`) tells those apart by walking the file's git history — the only place a past ground-truth value actually still exists.
 
-### Table 1 — Check Coverage (per sampler run)
+### Table 1 — Check Coverage (3 sampler sessions, live)
 
-*Populated once `drift/sampler.py` has run enough sessions to report a real total. Product/policy counts below are fixed by `catalog.json` / `policies.json`.*
+| Check Type | Ground Truth | Checks Run | Completed | Errored | Flagged |
+|---|---|---|---|---|---|
+| Numeric | `catalog.json` (8 products) | 24 | 24 | 0 | 0 |
+| Faithfulness | `policies.json` (14 claims, 6 topics) | 42 | 38 | 4 | 0 |
+| Self-consistency | none (5 uncovered questions × 3 samples) | 15 | 15 | 0 | 0 |
+| **Total** | | **81** | **77** | **4** | **0** |
 
-| Check Type | Ground Truth | Items Covered | Flags Raised | Notes |
-|---|---|---|---|---|
-| Numeric | `catalog.json` | 8 products | — | Exact match, no LLM judgment |
-| Faithfulness | `policies.json` | 14 claims across 6 topics | — | RAGAS Faithfulness, threshold 0.7 |
-| Self-consistency | none (uncovered questions) | 5 hand-picked questions | — | 3 samples each, agreement threshold 0.7 |
+The 4 errored checks all landed in one session, all under the `shipping` topic — one broad question ("what is your shipping policy?") whose faithfulness scoring failed for all four claims it should have covered, most likely a transient Groq judge failure rather than a code bug (the same check type succeeded cleanly on `shipping` in the other two sessions). Logged and shown as errored, not silently dropped or retried away.
 
 ### Table 2 — The Headline: Was a Flag Worth Reading?
 
-*The core number. Requires a review pass over logged incidents — `is_false_positive` set by a human, then `drift/audit.py::compute_false_positive_cost` does the arithmetic.*
+**Zero organic flags across 81 checks.** The live agent stayed grounded against undisturbed ground truth for all three sessions — a real result, not a placeholder, and it means Table 2's false-positive rate has no denominator yet: `compute_false_positive_cost` needs at least one flagged, reviewed incident to divide by. Not a failure of the check logic — see the staged-injection result below, which proves the same checks correctly flag and classify a *real* drift when one actually exists.
 
-| | Value |
-|---|---|
-| Total flagged | — |
-| Reviewed | — |
-| False positives | — |
-| True positives | — |
-| **False-positive rate** | — |
-| Review cost (1 unit / reviewed incident) | — |
+More sessions widen the chance of catching an organic flag (a real hallucination or a real faithfulness slip), which is what actually populates this table. Three sessions is a start, not a conclusion.
 
-A sentinel with a high false-positive rate is a pager nobody trusts. This table is the one that says whether that's this sentinel's fate or not — and it gets reported however it comes out.
+### Staged Injection — the one place real ground truth exists on both sides
+
+`drift/staged_injection.py` deliberately breaks one piece of ground truth, captures a real agent answer from before the break, and confirms the sentinel classifies it correctly *after* the break. Run twice, live, both times identical:
+
+| Step | What happened | Result |
+|---|---|---|
+| 1. Capture | Asked the live agent "What does the Merino Wool Beanie cost?" while the catalog still said ₹899 | `"The Merino Wool Beanie costs Rs.899."` |
+| 2. Inject | Changed `catalog.json`: ₹899 → ₹799. Committed it. | Ground truth now says ₹799 |
+| 3. Check the stale answer | Re-checked the *pre-injection* answer against the *new* ground truth | **Flagged.** `drift_cause=stale_ground_truth`, `severity=critical` |
+| 4. Check a fresh answer | Asked the agent the same question again (no caching — it re-reads `catalog.json` every call) | `"The Merino Wool Beanie costs Rs.799."` — **not flagged**, matched immediately |
+| 5. Resync | Reverted the price, committed the revert | Git history shows inject → catch → resync (twice — see the `stage:` commits) |
+
+**2/2 staged-injection runs: caught, correctly classified, correctly left the fresh answer alone.** This is the whole argument in five steps: a monitor that can't tell "this answer used to be right" from "this answer was never right" can't actually help anyone triage. `classify_drift_cause` (`drift/classify.py`) tells those apart by walking the file's git history — the only place a past ground-truth value actually still exists.
 
 ### Key Takeaways
 
-*Populated once the sampler has run enough sessions to say something real.*
+- **The pipeline works end to end, against live APIs, not mocks.** Every check type, the classifier, the audit metric, and the dashboard all ran on real data during this build.
+- **The staged-injection experiment is the strongest evidence in this repo.** It's the one place both sides of "should this be flagged" are actually known in advance, and the sentinel got it right twice for two.
+- **The organic false-positive rate needs more sessions before it means anything.** Zero flags in 81 checks is itself informative (the agent is well-grounded against unperturbed ground truth) but doesn't yet say what happens when real drift shows up outside a staged scenario.
+- **One real bug surfaced during this run**: 4/81 checks errored, isolated to one session's shipping-policy questions. Worth a closer look before trusting faithfulness numbers at a larger scale — see [resource.md](resource.md).
 
 ---
 
 ## 📈 Dashboard
 
-> **Not built yet — Phase 3.** Will live at **[jboiie.github.io/drift-sentinel](https://jboiie.github.io/drift-sentinel/)**.
+**Live at [jboiie.github.io/drift-sentinel](https://jboiie.github.io/drift-sentinel/).**
 
-A static Plotly site, published to GitHub Pages, built the same way as any other static-HTML report in this project: no server, no framework, loads instantly and never sleeps (the reason Streamlit Cloud was rejected — its free tier's cold-start spinner is the worst possible first impression on a portfolio link).
+A static Plotly site, published to GitHub Pages via `drift/dashboard.py`, built the same way as any other static-HTML report in this project: no server, no framework, loads instantly and never sleeps (the reason Streamlit Cloud was rejected — its free tier's cold-start spinner is the worst possible first impression on a portfolio link).
 
 | Panel | What it shows |
 |---|---|
-| **Incident timeline** | Every check across every sampler run, colour-coded by check type, flags marked | 
-| **False-positive scoreboard** | The Table 2 numbers, oversized, next to the raw counts they're built from |
-| **Drift-cause breakdown** | `stale_ground_truth` vs `fabrication` vs `inconsistency`, by severity |
-| **Staged-injection replay** | The five-step table above, rendered as a before/after diff with the actual agent transcripts |
-| **Run provenance** | Model versions, thresholds, git commit the check ran against |
+| **Summary tiles** | Sessions run, checks run, flagged, errored, false-positive rate, staged-injection detection rate |
+| **Staged-injection replay** | The real before/after transcripts from the table above, rendered as an actual conversation, not a mockup |
+| **Checks by type and outcome** | Numeric / faithfulness / self-consistency, stacked by ok / flagged / errored |
+| **Drift-cause breakdown** | `stale_ground_truth` vs `fabrication` vs `inconsistency`, once there's a flagged incident to classify |
+| **Run provenance** | Every sampler `run_id`, timestamp, and check count |
 
-Every number on the page comes from `reports/drift_log.json` — nothing typed into a template by hand.
+Every number on the page is generated by `python -m drift.dashboard` from `reports/drift_log.json` and `reports/staged_injection_log.json` — nothing typed into the template by hand. Re-running the sampler and re-running the dashboard script updates the published page on the next push.
 
 ---
 
@@ -320,16 +329,17 @@ Both free tiers are rate-limited per minute. `agent/reference_agent.py` and `jud
 - [x] Adapt logging from Supabase to a local `reports/drift_log.json`
 - [x] Port 13 tests, passing with no API keys required
 
-### Phase 2 — Real Numbers
-- [ ] Run `drift/sampler.py` across enough sessions for Table 1's counts to mean something
-- [ ] Manual review pass over flagged incidents — set `is_false_positive` by hand
-- [ ] Fill Table 2: the false-positive rate, whatever it turns out to be
-- [ ] Re-run `staged_injection.py` for a second ground-truth item (a policy claim, not just a price) to widen the end-to-end proof beyond one case
+### Phase 2 — Real Numbers (done, small sample)
+- [x] Ran `drift/sampler.py` for 3 live sessions — 81 checks, 0 organic flags, 4 errored
+- [x] Ran `staged_injection.py` end to end, twice — 2/2 caught and correctly classified
+- [ ] Run enough further sessions to catch at least one organic flag worth reviewing — 81 checks with zero flags means Table 2's rate has no denominator yet
+- [ ] Investigate the 4 errored shipping-topic checks — one session, one topic, looks transient but not confirmed
+- [ ] Manual review pass once organic flags exist — set `is_false_positive` by hand, then Table 2 gets a real rate
 
-### Phase 3 — Dashboard
-- [ ] Static Plotly site → `docs/` → GitHub Pages
-- [ ] Incident timeline, false-positive scoreboard, drift-cause breakdown, staged-injection replay
-- [ ] Enable Pages on `main` → `/docs`, confirm cold load under a second
+### Phase 3 — Dashboard (done)
+- [x] `drift/dashboard.py` — static Plotly site → `docs/` → GitHub Pages
+- [x] Summary tiles, staged-injection replay, checks-by-type breakdown, drift-cause breakdown, run provenance
+- [x] Pages enabled on `main` → `/docs`, live at [jboiie.github.io/drift-sentinel](https://jboiie.github.io/drift-sentinel/)
 
 ### Explicitly Out of Scope
 
