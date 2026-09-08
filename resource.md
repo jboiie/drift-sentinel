@@ -56,21 +56,25 @@ new.
 - [x] `pyproject.toml` rewritten for the new dependency set
   (`google-genai`, `openai`, `ragas`, `langchain-community<0.4`)
 
-## Phase 2 — Real Numbers
+## Phase 2 — Real Numbers (done, small sample)
 
 **Goal:** fill Tables 1 and 2 in the README with numbers from real runs,
 not placeholders.
 
-- [ ] Run `python -m drift.sampler` across enough sessions that Table 1's
-  counts mean something (aim for at least 5–10 full sessions, not one)
-- [ ] Manually review every flagged incident in `reports/drift_log.json`,
-  setting `reviewed_at`/`is_false_positive` by hand
-- [ ] Run `drift/audit.py::compute_false_positive_cost` over the reviewed
-  log, fill Table 2
-- [ ] Run `staged_injection.py` a second time against a policy claim (not
-  just a price) — the current proof only covers the numeric check path
-- [ ] Write the Key Takeaways section honestly, whatever the
-  false-positive rate turns out to be
+- [x] Ran `python -m drift.sampler` for 3 live sessions — 81 checks total,
+  0 organic flags, 4 errored (one session, all under the shipping topic)
+- [x] Ran `staged_injection.py` inject → commit → verify → commit, twice —
+  both times caught, correctly classified `stale_ground_truth`/`critical`,
+  fresh re-ask correctly left unflagged
+- [ ] Run more sessions — 3 sessions with zero organic flags means Table
+  2's false-positive rate has no denominator yet; more sessions is what
+  actually gets one
+- [ ] Investigate the 4 errored checks before trusting faithfulness numbers
+  at a larger scale — isolated to one session, one topic, looks like a
+  transient Groq judge failure but that's a guess, not a diagnosis
+- [ ] Manually review flagged incidents once organic flags exist, setting
+  `reviewed_at`/`is_false_positive` by hand, then run
+  `drift/audit.py::compute_false_positive_cost` for a real Table 2
 
 **Risk, stated plainly:** the review step is manual and by the project's
 own author, which is a conflict of interest a rigorous eval wouldn't
@@ -80,22 +84,24 @@ mechanical enough that reviewer bias has little room to operate — this
 isn't a subjective quality judgment, it's confirming a price or policy
 line against a JSON file.
 
-## Phase 3 — Dashboard
+## Phase 3 — Dashboard (done)
 
 **Goal:** one static page that makes the results visible without reading
 a table.
 
-- [ ] `dashboard.py` — reads `reports/drift_log.json`, writes a
-  self-contained static site to `docs/`
-- [ ] Incident timeline, false-positive scoreboard, drift-cause breakdown,
-  staged-injection replay, run provenance — same panel-by-panel build
-  order discipline as everything else in this project: ship the one panel
-  that carries the argument (the false-positive scoreboard) first
-- [ ] Enable GitHub Pages on `main` → `/docs`, confirm cold load under a
-  second
-- [ ] Static, no server, no framework — the reason Streamlit was rejected
-  for the same role in this project's earlier fraud-detection design
-  still applies: its free tier sleeps, and a cold spinner is the worst
+- [x] `drift/dashboard.py` — reads `reports/drift_log.json` and
+  `reports/staged_injection_log.json`, writes a self-contained static
+  site to `docs/`
+- [x] Summary tiles, staged-injection replay (real transcripts), checks-
+  by-type breakdown, drift-cause breakdown, run provenance — staged-
+  injection replay shipped first since it's the panel that actually
+  carries the argument while organic flags are still at zero
+- [x] GitHub Pages enabled on `main` → `/docs`, live at
+  [jboiie.github.io/drift-sentinel](https://jboiie.github.io/drift-sentinel/)
+- [x] Static, no server, no framework, Plotly inlined — the reason
+  Streamlit was rejected for the same role in this project's earlier
+  fraud-detection design still applies: its free tier sleeps, and a cold
+  spinner is the worst
   first impression a portfolio link can give
 
 ---
@@ -114,12 +120,13 @@ a table.
 
 ## What "Done" Looks Like
 
-- `pytest` passes with no API keys required
-- `python -m drift.sampler` runs end-to-end against live agent + judge
-- `staged_injection.py inject` → commit → `verify` → commit runs clean,
-  as it already does
-- Table 2's false-positive rate is a real number with a real denominator,
-  not a placeholder
-- Dashboard live at `jboiie.github.io/drift-sentinel`, every number on it
-  generated from `reports/drift_log.json`
-- README contains zero numbers that weren't produced by running the code
+- [x] `pytest` passes with no API keys required
+- [x] `python -m drift.sampler` runs end-to-end against live agent + judge
+- [x] `staged_injection.py inject` → commit → `verify` → commit runs clean
+- [x] Dashboard live at `jboiie.github.io/drift-sentinel`, every number on
+  it generated from `reports/drift_log.json` / `staged_injection_log.json`
+- [x] README contains zero numbers that weren't produced by running the
+  code
+- [ ] Table 2's false-positive rate is a real number with a real
+  denominator — still `n/a`, since 3 sessions produced 0 organic flags.
+  The one item left
