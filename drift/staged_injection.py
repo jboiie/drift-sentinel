@@ -29,6 +29,7 @@ import asyncio
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from agent.reference_agent import ask_async
@@ -38,6 +39,7 @@ from drift.diff import check_numeric
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG_PATH = ROOT / "catalog.json"
 STATE_PATH = ROOT / ".drift_injection_state.json"  # gitignored scratch, not committed
+LOG_PATH = ROOT / "reports" / "staged_injection_log.json"  # for the dashboard
 PRODUCT_ID = "prod_003"  # Merino Wool Beanie
 NEW_PRICE = 799  # from 899
 
@@ -91,10 +93,29 @@ async def verify():
     print(f"  flagged={fresh_result.flagged}, expected={fresh_result.expected}, actual={fresh_result.actual}")
     assert not fresh_result.flagged, "expected the fresh post-injection answer to NOT be flagged"
 
+    LOG_PATH.parent.mkdir(exist_ok=True)
+    entry = {
+        "logged_at": datetime.now(timezone.utc).isoformat(),
+        "product_id": PRODUCT_ID,
+        "question": question,
+        "original_price": original_price,
+        "injected_price": NEW_PRICE,
+        "stale_answer": stale_answer,
+        "fresh_answer": fresh_answer,
+        "stale_flagged": stale_result.flagged,
+        "stale_drift_cause": stale_cause,
+        "stale_severity": stale_severity,
+        "fresh_flagged": fresh_result.flagged,
+    }
+    existing = json.loads(LOG_PATH.read_text(encoding="utf-8")) if LOG_PATH.exists() else []
+    existing.append(entry)
+    LOG_PATH.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+
     print(f"\nReverting catalog.json: {PRODUCT_ID} {NEW_PRICE} -> {original_price} (resync)")
     _set_price(PRODUCT_ID, original_price)
     STATE_PATH.unlink(missing_ok=True)
     print("Now commit this revert - git history should show inject -> catch -> resync.")
+    print(f"Logged this run to {LOG_PATH} for the dashboard.")
     print("\nAll assertions passed - drift correctly caught, classified, and logged.")
 
 
