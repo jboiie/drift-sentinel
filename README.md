@@ -2,377 +2,273 @@
 
 # 📉 Drift Sentinel
 
-### ML Model Monitoring & Drift Detection Pipeline
+### Catching an LLM support agent's answers drifting away from ground truth
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-design%20phase-orange.svg)]()
+[![Status](https://img.shields.io/badge/status-in%20build-orange.svg)]()
 [![Dashboard](https://img.shields.io/badge/dashboard-not%20yet%20live-lightgrey.svg)](https://jboiie.github.io/drift-sentinel/)
 
-*A drift monitor that grades its own alerts — do they predict model failure, or just notice that the data moved?*
+*A drift monitor that grades its own alerts — do they catch a real problem, or just add noise nobody reads?*
 
-[Results](#-results) · [Dashboard](#-dashboard) · [Pipeline](#-pipeline) · [Architecture](#-architecture) · [Drift Methods](#-drift-detection-methods) · [Quickstart](#-quickstart) · [Roadmap](#-roadmap)
+[Results](#-results) · [Dashboard](#-dashboard) · [Pipeline](#-pipeline) · [Quickstart](#-quickstart) · [Roadmap](#-roadmap)
 
 </div>
 
 ---
 
-> **What this is:** a drift-monitoring pipeline for a production-style fraud model — plus the one thing most drift repos skip, a scorecard for whether its own alerts were worth acting on.
->
-> Drift detectors (PSI, KS, MMD) watch the *input* distribution, because in fraud the real labels arrive days or weeks late. But an input shift isn't automatically a problem: a detector can fire on a harmless shift, or stay quiet while accuracy collapses.
->
-> Drift Sentinel replays a LightGBM fraud classifier over time-ordered IEEE-CIS batches. Detectors run label-free, exactly as they would in production. Labels are then used — only afterwards — to grade every alert that fired, producing an **alert precision** number per detector: of the times this method cried drift, how often did the model actually get worse?
->
-> **No results yet.** All tables below are empty by design and get populated by running the pipeline. Any number in this README is either measured output or absent.
+> **What this is:** a customer-support agent (Gemini, answering from a product catalog and a policy list) with a watchdog sitting behind it, checking every answer against the ground truth it was supposed to use — and grading itself on whether a raised flag was ever worth a human's time.
+
+An LLM support agent doesn't fail the way a normal service fails. It doesn't throw a 500. It answers fluently, sounds confident, and is sometimes just wrong — a price that changed since the answer was written, a policy claim invented out of thin air, or three different answers to the same question depending on the day. Nothing crashes. Nothing pages anyone. The only trace is the transcript.
+
+Drift Sentinel watches for that. It runs three kinds of check against every answer the agent gives:
+
+1. **Numeric drift** — does a stated price still match the catalog? Exact match, no LLM judgment needed.
+2. **Faithfulness drift** — does a policy answer still say what the policy actually says? Scored with RAGAS's Faithfulness metric, which decomposes the answer into individual claims and checks each one.
+3. **Self-consistency drift** — for questions with no ground truth to check against, does the agent give the same answer three times in a row? Disagreement is the hallucination signal (SelfCheckGPT-style).
+
+Every flag gets classified — `stale_ground_truth`, `fabrication`, or `inconsistency` — using git history as the source of truth for what ground truth used to say. And every flag has a cost: a human has to look at it. **The number this project is built around is the false-positive rate on that review queue** — of the times the sentinel raised a hand, how often was it actually right?
+
+**No results yet.** Every number below gets filled in by running the pipeline. `staged_injection.py` is the one experiment that already runs end to end — see [Results](#-results).
 
 ---
 
 ## 📌 The Problem
 
-ML models degrade silently in production. A fraud classifier trained on January data will encounter December transaction patterns — different spending behaviors, new merchant categories, evolved fraud tactics — with no built-in mechanism to alert you that its predictions are becoming unreliable.
+Most "AI agent monitoring" either isn't monitoring the thing that actually breaks, or has no way to tell you whether it's any good.
 
-Most teams handle this with scheduled retraining: retrain every N days regardless of whether drift has actually occurred. This is both too slow (drift may happen in days, not months) and too expensive (retraining is costly when the model is still performing well).
+- **LLM observability tools** (LangSmith, Helicone, etc.) log latency, token cost, and traces. None of that tells you the agent quoted the wrong price.
+- **Guardrail tools** check for toxicity, PII, prompt injection. None of that catches a support agent confidently stating a return window that changed last week.
+- **"We eyeball the transcripts"** is what most teams actually do, and it doesn't scale past a demo.
 
-The standard answer is drift detection: watch the *input* distribution, because labels arrive too late to watch the output. PSI, KS, and MMD are the usual tools, and every MLOps vendor ships some version of them.
+The real failure mode in a grounded support agent is narrower and more specific: **the agent's answer stops matching the ground truth it's supposed to be grounded in.** That happens for three different reasons, and they need three different checks:
 
-But there is an assumption buried in that answer, and it is rarely tested: **that an input shift means a performance problem.** A detector can fire on a shift the model handles fine, and stay quiet while accuracy quietly collapses.
+| Reason | Example | Check |
+|---|---|---|
+| Ground truth changed, the agent (or a cached answer) didn't catch up | Price dropped from ₹899 to ₹799, an old answer still says ₹899 | Numeric exact-match |
+| The agent invents something not actually true | Claims a 90-day return window when the policy says 30 | RAGAS Faithfulness |
+| The agent isn't grounded in anything, and it shows | Answers the same question three different ways | Self-consistency |
 
-**Drift Sentinel measures that gap directly.** It replays a frozen fraud classifier over time-ordered batches, runs each detector label-free, then uses withheld labels to grade every alert after the fact:
-
-1. **Does the model actually degrade** over the observed window? (Table 1)
-2. **Which detector notices first**, and how often does it cry wolf? (Table 2)
-3. **Do those alerts predict real harm?** — alert precision per detector (Table 3)
-4. **Which drift types does each method miss** under known ground truth? (Table 4)
-
-Table 3 is the reason this exists. Anyone can implement PSI from a blog post; the interesting part is finding out whether PSI was ever worth listening to.
+**Drift Sentinel measures whether flagging any of that is worth the human time it costs.** A monitor with a 90% false-positive rate trains its own reviewers to stop reading it — that failure mode is invisible until someone actually measures it, which is what this project does.
 
 ---
 
 ## 📊 Results
 
-> **Status: no experiments run yet.** Every cell below is a placeholder. Batch boundaries are provisional until [Phase 0](#phase-0--premise-validation-day-1) measures the dataset's actual time span.
+> **Status: build in progress.** The sampler (`drift/sampler.py`) needs to run across enough real sessions to populate a false-positive rate with a denominator worth reporting. What's below is what already runs and passes today.
 
-### A note on the time axis
+### Staged injection — proof the sentinel actually works end to end
 
-IEEE-CIS does not ship calendar dates. `TransactionDT` is an integer offset in seconds from an undisclosed reference point, and the labeled file (`train_transaction.csv`) covers roughly **182 days**, not a full year. The Kaggle test split covers the following period but is **unlabeled**, so it cannot be used for performance evaluation.
+`drift/staged_injection.py` deliberately breaks one piece of ground truth, captures a real agent answer from before the break, and confirms the sentinel classifies it correctly *after* the break — the smallest possible end-to-end proof that isn't a unit test with mocked data.
 
-Consequently all windows below are expressed as **day offsets within the labeled period**, not months. Phase 0 verifies the true span before boundaries are fixed.
+| Step | What happens | Result |
+|---|---|---|
+| 1. Capture | Ask the live agent "What does the Merino Wool Beanie cost?" while the catalog still says ₹899 | Real answer captured |
+| 2. Inject | Change `catalog.json`: ₹899 → ₹799. Commit it. | Ground truth now says ₹799 |
+| 3. Check the stale answer | Re-check the *pre-injection* answer against the *new* ground truth | **Flagged.** `drift_cause=stale_ground_truth`, `severity=critical` |
+| 4. Check a fresh answer | Ask the agent the same question again (no caching — it re-reads `catalog.json` every call) | **Not flagged.** Matches new ground truth immediately |
+| 5. Resync | Revert the price, commit the revert | Git history now shows inject → catch → resync |
 
-### Table 1 — Model Performance Degradation Over Time (Phase A)
+This is the whole argument in five steps: a monitor that can't tell "this answer used to be right" from "this answer was never right" can't actually help anyone triage. `classify_drift_cause` (`drift/classify.py`) tells those apart by walking the file's git history — the only place a past ground-truth value actually still exists.
 
-*LightGBM trained on the reference window, evaluated on later held-out batches. No retraining.*
+### Table 1 — Check Coverage (per sampler run)
 
-| Evaluation Window | PR-AUC | ROC-AUC | F1 (fraud) | Precision | Recall | Fraud rate | Δ PR-AUC vs baseline |
-|---|---|---|---|---|---|---|---|
-| Reference (days 0–59, train) | — | — | — | — | — | — | baseline |
-| Batch 1 (days 60–89) | — | — | — | — | — | — | — |
-| Batch 2 (days 90–119) | — | — | — | — | — | — | — |
-| Batch 3 (days 120–149) | — | — | — | — | — | — | — |
-| Batch 4 (days 150–181) | — | — | — | — | — | — | — |
+*Populated once `drift/sampler.py` has run enough sessions to report a real total. Product/policy counts below are fixed by `catalog.json` / `policies.json`.*
 
-**PR-AUC is the primary metric.** IEEE-CIS is ~3.5% fraud; ROC-AUC is inflated and insensitive at that imbalance. ROC-AUC is reported alongside so the numbers line up with the usual IEEE-CIS baselines.
+| Check Type | Ground Truth | Items Covered | Flags Raised | Notes |
+|---|---|---|---|---|
+| Numeric | `catalog.json` | 8 products | — | Exact match, no LLM judgment |
+| Faithfulness | `policies.json` | 14 claims across 6 topics | — | RAGAS Faithfulness, threshold 0.7 |
+| Self-consistency | none (uncovered questions) | 5 hand-picked questions | — | 3 samples each, agreement threshold 0.7 |
 
-### Table 2 — Detector Comparison (Phase B)
+### Table 2 — The Headline: Was a Flag Worth Reading?
 
-*How early does each method flag drift, and how often does it flag nothing at all?*
+*The core number. Requires a review pass over logged incidents — `is_false_positive` set by a human, then `drift/audit.py::compute_false_positive_cost` does the arithmetic.*
 
-| Method | First Batch Flagged | Samples Before Perf. Drop | FP Rate (stable windows) | Runtime (n=5000) | Notes |
-|---|---|---|---|---|---|
-| Never-alert baseline | never | N/A | 0% | — | Lower bound: fixed-schedule retraining |
-| Always-alert baseline | batch 1 | N/A | 100% | — | Upper bound: trivially "detects" everything |
-| PSI | — | — | — | — | Univariate, binned |
-| KS Test | — | — | — | — | Univariate, Bonferroni-corrected |
-| MMD | — | — | — | — | Multivariate, RBF kernel |
-| Ensemble (2-of-3 vote) | — | — | — | — | Hypothesis under test — see caveat below |
-| NannyML (external) | — | — | — | — | Third-party reference implementation |
-| Evidently (external) | — | — | — | — | Third-party reference implementation |
+| | Value |
+|---|---|
+| Total flagged | — |
+| Reviewed | — |
+| False positives | — |
+| True positives | — |
+| **False-positive rate** | — |
+| Review cost (1 unit / reviewed incident) | — |
 
-The two trivial baselines are included deliberately: any detector that cannot beat *always-alert* on precision and *never-alert* on recall has not earned its compute.
-
-> **Ensemble caveat.** A 2-of-3 majority vote over detectors with differing false-positive profiles frequently lands *between* its constituents rather than above them. The ensemble is a hypothesis being tested here, not a claimed improvement. If it adds nothing over the best single detector, that result gets reported as-is.
-
-### Table 3 — Alert Precision: Do Drift Alerts Predict Real Degradation? (Phase B)
-
-*The headline table. Each detector's alerts are treated as predictions of "PR-AUC will drop in this batch," then scored against measured performance.*
-
-| Detector | Alerts Fired | Alerts Preceding Real Degradation | **Alert Precision** | Degradations Missed | **Alert Recall** |
-|---|---|---|---|---|---|
-| PSI | — | — | — | — | — |
-| KS Test | — | — | — | — | — |
-| MMD | — | — | — | — | — |
-| Ensemble | — | — | — | — | — |
-| NannyML (external) | — | — | — | — | — |
-| Evidently (external) | — | — | — | — | — |
-
-Labels are used **only to score alerts after the fact** — never as detector input. The detectors remain label-free, which is the entire practical argument for input-space monitoring. See [methods.md](methods.md#alert-precision-the-core-evaluation) for the degradation threshold definition.
-
-### Table 4 — Engineered Drift Scenarios (Phase C)
-
-*Controlled drift injected into the stream. Measures detector sensitivity by drift type, with known ground truth.*
-
-| Drift Scenario | Drift Type | PSI | KS | MMD | Ensemble | Batches to Detection |
-|---|---|---|---|---|---|---|
-| Gradual feature shift (transaction amount) | Covariate drift | — | — | — | — | — |
-| Sudden distribution step at batch K | Covariate drift | — | — | — | — | — |
-| Fraud rate doubled | Prior probability drift | — | — | — | — | — |
-| Correlation flip between 2 features | Joint/covariate drift | — | — | — | — | — |
-| **Null control** (no drift injected) | none | — | — | — | — | should be "never" |
-
-The null control row measures false positives directly: any detector flagging the unmodified stream is producing a false alarm under known ground truth.
+A sentinel with a high false-positive rate is a pager nobody trusts. This table is the one that says whether that's this sentinel's fate or not — and it gets reported however it comes out.
 
 ### Key Takeaways
 
-*Populated after experiments run. Null and negative results are reported, not omitted.*
-
-- **Phase A** — does the model measurably degrade over the labeled window?
-- **Phase B** — which detector's alerts actually predict that degradation?
-- **Phase C** — which drift types does each detector catch, and which does it miss?
-
----
-
-## 🏗️ Architecture
-
-Batch replay, not live serving. The experiment needs temporally-ordered batches scored by a frozen model — a network hop between the scorer and the detector would add infrastructure without changing a single number in any table.
-
-```
-   data/reference/          data/incoming/
-   (days 0–59, labeled)     (batch_1 … batch_N, temporally ordered)
-          │                        │
-          │                        ├──────────────┐
-          ▼                        ▼              │
-╔══════════════════════════════════════════════╗  │
-║          DRIFT ENGINE (label-free)           ║  │
-║                                              ║  │
-║   PSI ──┐                                    ║  │
-║   KS  ──┼──▶ Ensemble vote ──▶ verdict       ║  │
-║   MMD ──┘                                    ║  │
-║                                              ║  │
-║   Sees features only. Never sees isFraud.    ║  │
-╚══════════════════════╤═══════════════════════╝  │
-                       │ alerts                   │
-                       │                          ▼
-                       │            ┌──────────────────────────┐
-                       │            │  Frozen LightGBM model   │
-                       │            │  scores each batch       │
-                       │            └────────────┬─────────────┘
-                       │                         │ predictions
-                       │                         ▼
-                       │            ┌──────────────────────────┐
-                       │            │  PERFORMANCE EVALUATOR   │
-                       │            │  PR-AUC / ROC-AUC / F1   │
-                       │            │  uses withheld labels    │
-                       │            └────────────┬─────────────┘
-                       │                         │ realized degradation
-                       ▼                         ▼
-          ╔══════════════════════════════════════════════════╗
-          ║        ALERT SCORER  ← the interesting part      ║
-          ║  Did each alert precede real degradation?        ║
-          ║  ▶ alert precision / recall per detector         ║
-          ╚═══════════════════════╤══════════════════════════╝
-                                  ▼
-                     JSON summary + per-batch HTML report
-                     exit code 1 if --fail-above breached
-                              │
-                              ▼
-                     docs/  →  GitHub Pages dashboard
-```
-
-The two halves are deliberately isolated: the drift engine is label-blind, and labels enter only downstream to grade the alerts it already emitted. That separation is what makes the alert-precision number honest rather than circular.
-
-### Design Decisions
-
-| Decision | Rationale |
-|---|---|
-| **Alert precision as the headline metric** | "I implemented PSI" says nothing. "PSI fired 8 times and 2 of them preceded real degradation" says something. Detecting input shift only matters insofar as it predicts harm |
-| **Batch replay over a live model server** | Every question here is answerable offline. A FastAPI server changes no table and costs a week |
-| **Labels withheld from detectors, used for scoring** | Preserves the practical claim (drift detection needs no labels) while still allowing alerts to be graded |
-| **PR-AUC primary, ROC-AUC secondary** | ~3.5% positive class. ROC-AUC is optimistic and flat under that imbalance |
-| **Trivial baselines in every comparison** | Never-alert and always-alert bound the problem. A detector that beats neither is noise with extra steps |
-| **NannyML + Evidently as external baselines** | Self-referential numbers are worthless. Third-party implementations make the comparison externally anchored |
-| **Ensemble as hypothesis, not conclusion** | Majority voting often underperforms its best member. Stated as a question the experiment answers |
-| **Static HTML report output** | Sharable, no dashboard required. Drop the report into a PR comment or email it |
-
----
-
-## 🔍 Drift Detection Methods
-
-Nothing is implemented yet. Status column reflects build order, not progress.
-
-| Method | What It Detects | Strength | Weakness | Status |
-|---|---|---|---|---|
-| **PSI** (Population Stability Index) | Distribution shift per feature | Industry standard, interpretable | Univariate only, requires binning | 🔲 Phase B |
-| **KS Test** | Distribution shift per feature | Non-parametric, no binning | Univariate only, sensitive to sample size | 🔲 Phase B |
-| **MMD** | Multivariate distribution shift in kernel space | Catches joint feature shifts KS/PSI miss | O(n²), kernel choice matters | 🔲 Phase B |
-| **Ensemble** | 2-of-3 vote across PSI + KS + MMD | *Hypothesis:* fewer false positives | May land between constituents, not above | 🔲 Phase B |
-| **NannyML / Evidently** | External reference implementations | Third-party, independently maintained | Not tuned to this dataset | 🔲 Phase B |
-| **ADWIN** | Concept drift via sliding window on error rate | Reacts to actual performance drop | Requires ground truth labels (delayed) | ❌ Out of scope — see [Roadmap](#-roadmap) |
+*Populated once the sampler has run enough sessions to say something real.*
 
 ---
 
 ## 📈 Dashboard
 
-> **Not built yet — Phase D.** Will live at **[jboiie.github.io/drift-sentinel](https://jboiie.github.io/drift-sentinel/)**.
+> **Not built yet — Phase 3.** Will live at **[jboiie.github.io/drift-sentinel](https://jboiie.github.io/drift-sentinel/)**.
 
-Tables 1–4 are the substance, but a table cannot show you an alert landing in the wrong place. The dashboard exists to make the project's central claim *visible in one screen*: drift alerts plotted directly on top of the model's actual performance curve, so anyone can see at a glance whether the alerts tracked the damage or fired into empty space.
+A static Plotly site, published to GitHub Pages, built the same way as any other static-HTML report in this project: no server, no framework, loads instantly and never sleeps (the reason Streamlit Cloud was rejected — its free tier's cold-start spinner is the worst possible first impression on a portfolio link).
 
-### Why static, not Streamlit
-
-| Option | Verdict |
+| Panel | What it shows |
 |---|---|
-| **Static HTML + Plotly on GitHub Pages** | **Chosen.** Loads instantly, never sleeps, ₹0 forever, works offline, reuses the Jinja2 + Plotly report generator already needed for Phase C |
-| Streamlit Cloud | Rejected. The free tier sleeps after inactivity — a visitor's first impression is a "waking up…" spinner |
-| React / Next.js SPA | Rejected. Weeks of work and a hosting story, to render six charts that do not need a runtime |
-| Notebook rendered to HTML | Rejected. Reads as homework, not as a product |
+| **Incident timeline** | Every check across every sampler run, colour-coded by check type, flags marked | 
+| **False-positive scoreboard** | The Table 2 numbers, oversized, next to the raw counts they're built from |
+| **Drift-cause breakdown** | `stale_ground_truth` vs `fabrication` vs `inconsistency`, by severity |
+| **Staged-injection replay** | The five-step table above, rendered as a before/after diff with the actual agent transcripts |
+| **Run provenance** | Model versions, thresholds, git commit the check ran against |
 
-No build step, no JS framework, no server. `python -m sentinel.dashboard` writes self-contained HTML into `docs/`, which GitHub Pages serves straight off `main`.
+Every number on the page comes from `reports/drift_log.json` — nothing typed into a template by hand.
 
-### Panels
+---
 
-| # | Panel | What it shows | Chart |
-|---|---|---|---|
-| 1 | **Scoreboard** | Alert precision and recall per detector, versus the never-alert and always-alert baselines. The headline numbers, oversized | Stat tiles + horizontal bars |
-| 2 | **The money chart** | PR-AUC over time as a line, with each detector's alerts as markers on the same x-axis, and degraded batches shaded | Overlaid time series |
-| 3 | **Drift score timeline** | Every detector's raw statistic per batch, thresholds drawn as reference lines | Small multiples |
-| 4 | **Feature explorer** | Reference vs incoming distribution for any feature, batch selectable | Overlaid histograms / KDE |
-| 5 | **Scenario matrix** | Detector × engineered drift type, coloured by batches-to-detection. The null-control column should be blank | Heatmap |
-| 6 | **Run provenance** | Seeds, batch boundaries, dataset span, library versions, timestamp | Plain table |
+## 🏗️ Architecture
 
-Panel 2 is the one that matters. If the alert markers cluster on the drops, the detectors work. If they scatter across flat stretches, they don't — and that is equally worth seeing.
+```
+   catalog.json / policies.json        session questions
+   (ground truth, git-tracked)         (numeric / faithfulness / uncovered)
+              │                                  │
+              │                                  ▼
+              │                    ┌──────────────────────────┐
+              │                    │   reference_agent.ask()   │
+              │                    │   Gemini, no cache,       │
+              │                    │   re-reads ground truth   │
+              │                    │   fresh on every call     │
+              │                    └────────────┬─────────────┘
+              │                                 │ answer(s)
+              ▼                                 ▼
+   ╔═════════════════════════════════════════════════════════╗
+   ║                    DRIFT CHECKS                          ║
+   ║                                                          ║
+   ║  numeric ──────────► exact match vs catalog.json         ║
+   ║  faithfulness ─────► RAGAS Faithfulness vs policies.json ║
+   ║  self-consistency ─► 3x sample, LLM-judged agreement     ║
+   ╚════════════════════════╤══════════════════════════════════╝
+                            │ DriftCheckResult (flagged?)
+                            ▼
+              ┌──────────────────────────────┐
+              │   classify.py                │
+              │   drift_cause via git log:   │
+              │   stale_ground_truth |       │
+              │   fabrication | inconsistency│
+              └────────────┬─────────────────┘
+                           │
+                           ▼
+              reports/drift_log.json  ← committed nowhere, gitignored
+                           │
+                           ▼
+              ╔══════════════════════════════════╗
+              ║   audit.py — THE HEADLINE         ║
+              ║   false-positive rate on flags,   ║
+              ║   once a human reviews them        ║
+              ╚══════════════════════════════════╝
+```
 
-### Design constraints
+### Design Decisions
 
-- Dark theme by default, light theme respected via `prefers-color-scheme`
-- Fully responsive; every chart legible on a phone, since links get opened on phones
-- Self-contained: Plotly inlined, no CDN, no external fonts, page renders with the network off
-- Every number on the page is generated from `reports/*.json` — nothing typed by hand, same rule as the README
-- Panels 1, 2, 5 render as static PNG too, for embedding directly in the README
+| Decision | Rationale |
+|---|---|
+| **False-positive rate as the headline metric** | "The agent's answers get checked" says nothing about whether the checking is any good. "23% of flags were real" says something |
+| **Numeric checks are rule-based, not LLM-judged** | A price either matches or it doesn't. An LLM call to compare two numbers adds cost and a new failure mode for zero benefit |
+| **git history as the ground-truth timeline** | No snapshot table was built for past values — `catalog.json`/`policies.json` are committed files, and git already records every value they've ever held |
+| **Faithfulness gets the LLM judge, numeric doesn't** | Policy text is genuinely fuzzy (phrasing varies, meaning doesn't); price is not |
+| **Staged injection as the end-to-end proof** | Individual unit tests prove each function works on synthetic inputs. Staged injection proves the whole pipeline works on a real agent, a real ground-truth edit, and real git history |
+| **JSON log, no database** | Same posture as the rest of this project: static files, no server, ₹0 to run |
+| **Ported from a working system, not built from scratch** | The detection logic already ran against a live agent in a separate project (ARGUS) and caught real bugs during that build — see [prior_work.md](prior_work.md) |
+
+---
+
+## 🧰 What This Project Demonstrates
+
+| Area | Concretely |
+|---|---|
+| **LLM evaluation** | RAGAS Faithfulness (claim decomposition against retrieved context), SelfCheckGPT-style consistency sampling, structured LLM-as-judge output via strict JSON schemas |
+| **Systems judgement** | git history used as a ground-truth timeline instead of building a snapshot table nobody asked for |
+| **Evaluation design** | A monitor that scores its own usefulness (false-positive rate on its own flags), not just whether it fires |
+| **Engineering practice** | Rate-limited/retried API calls against two free-tier providers, seeded and reproducible checks, tests that need no API key or network |
+| **Debugging real systems** | Two documented false-flag bugs from the source project (a price-extraction regex grabbing the wrong number, a faithfulness score cratering because the context didn't cover the full answer) fixed and encoded as regression tests, not just fixed and forgotten |
+| **Scoping** | Reused a working detection engine from a larger system instead of re-deriving it, and said so — see [prior_work.md](prior_work.md) |
 
 ---
 
 ## 🚀 Pipeline
 
-### Running the Monitor
-
-> **Interface sketch — not yet built.** The shape below is the Phase B target, shown so the design is reviewable before implementation. Values are placeholders illustrating the output format, not measurements.
+### Running a check
 
 ```bash
-# Install
-pip install -e ".[baselines,dev]"
+pip install -e ".[dev]"
+cp .env.example .env   # fill in GEMINI_API_KEY, GROQ_API_KEY (both free tier)
 
-# Run drift check on one incoming batch
-python -m sentinel.runner \
-  --reference data/reference/reference_window.csv \
-  --incoming data/incoming/batch_04.csv \
-  --model models/lgbm_fraud_ref.pkl \
-  --output reports/batch_04_report.html \
-  --fail-above 0.20
+python -m agent.reference_agent    # smoke-test the agent alone
+python -m drift.diff               # numeric + faithfulness demo
+python -m drift.self_consistency   # hallucination-sampling demo
+python -m drift.audit              # false-positive cost arithmetic, offline
 ```
 
-```
-# =============================================
-# DRIFT SENTINEL REPORT — batch_04
-# =============================================
-#   reference_size:      <n>
-#   incoming_size:       <n>
-#   psi_max / psi_mean:  <score> / <score>
-#   ks_flagged_features: [<feature>, ...]   (Bonferroni-corrected)
-#   mmd_statistic:       <score>  (p=<pval>, 500 permutations)
-#   ensemble_verdict:    DRIFT | NO DRIFT   (<k>/3 detectors agree)
-#   report:              reports/batch_04_report.html
-# exit code 1 if ensemble drift score exceeds --fail-above
+### Running a full sampler session
+
+```bash
+python -m drift.sampler
+# Asks one numeric question per product, one faithfulness question per
+# policy topic, and 5 uncovered questions. Appends every result to
+# reports/drift_log.json.
 ```
 
-Note what the runner does **not** print: model performance. The detectors never see labels, so the runner cannot report a performance delta. That comparison happens separately in the evaluation step, which is exactly what keeps Table 3 honest.
+### The staged-injection proof
 
-### Evaluation Loop
+```bash
+python -m drift.staged_injection inject
+git add catalog.json && git commit -m "stage: inject price drift for demo"
 
+python -m drift.staged_injection verify
+git add catalog.json && git commit -m "stage: resync after drift demo"
 ```
-   label-free path                        label-using path
-   ───────────────                        ────────────────
-   batch ──▶ detectors ──▶ alert?         batch ──▶ model ──▶ PR-AUC
-                             │                                 │
-                             └────────▶ ALERT SCORER ◀─────────┘
-                                              │
-                                    alert precision / recall
-                                         (Table 3)
-```
-
-Every batch is logged with drift scores, flagged features, ensemble verdict, and — separately — realized performance. Joining those two logs produces Table 3 and provides the ground truth for the Phase C engineered scenarios.
 
 ---
 
 ## 📁 Project Structure
 
-Target layout. Nothing below `sentinel/` exists yet — directories get created when the phase that needs them starts, not before.
-
 ```
 drift-sentinel/
 │
-├── sentinel/                   ← CORE PIPELINE — primary entrypoint
-│   ├── runner.py               # Main CLI: runs drift checks, outputs report
-│   ├── detectors/
-│   │   ├── base.py             # Detector interface (score → verdict)
-│   │   ├── psi.py              # PSI, equal-frequency bins
-│   │   ├── ks_test.py          # KS test, Bonferroni-corrected
-│   │   ├── mmd.py              # MMD, RBF kernel + permutation test
-│   │   └── ensemble.py         # k-of-n vote across detectors
-│   ├── evaluation/
-│   │   ├── metrics.py          # PR-AUC, ROC-AUC, F1 per batch
-│   │   └── alert_scorer.py     # ← THE POINT: alerts vs realized degradation
-│   ├── report.py               # Per-batch static HTML report
-│   ├── dashboard.py            # Phase D: builds the full static site into docs/
-│   └── templates/
-│       ├── report.html.j2      # Single-batch report template
-│       ├── dashboard.html.j2   # Multi-panel dashboard template
-│       └── style.css           # Dark/light theme, inlined at build time
+├── agent/
+│   └── reference_agent.py      # Gemini Q&A agent, grounded in catalog/policies
 │
-├── scripts/
-│   ├── prepare_data.py         # Temporal split → reference + ordered batches
-│   ├── train_model.py          # LightGBM on reference window, early stopping
-│   └── simulate_drift.py       # Phase C: injects controlled drift scenarios
+├── judge/
+│   └── groq_model.py           # Groq-backed structured-output judge (free tier)
 │
-├── notebooks/
-│   └── analysis.ipynb          # EDA, time-span validation, result plots
+├── drift/
+│   ├── diff.py                 # numeric exact-match + RAGAS Faithfulness
+│   ├── self_consistency.py     # SelfCheckGPT-style hallucination sampling
+│   ├── classify.py             # drift_cause + severity, via git history
+│   ├── audit.py                # ← THE HEADLINE: false-positive cost metric
+│   ├── sampler.py              # orchestrates a full check session
+│   └── staged_injection.py     # end-to-end proof: inject → catch → resync
 │
-├── tests/
-│   ├── test_detectors.py       # Synthetic data — no Kaggle dependency
-│   └── test_alert_scorer.py    # Precision/recall logic on known inputs
+├── tests/                      # no API keys or network required
 │
-├── data/                       # gitignored — download from Kaggle
-│   ├── raw/                    # IEEE-CIS as downloaded
-│   ├── reference/              # Reference window (days 0–59)
-│   └── incoming/               # Ordered batches + engineered variants
+├── reports/                    # drift_log.json — gitignored, generated
+├── docs/                       # Phase 3: published dashboard (GitHub Pages)
 │
-├── models/                     # Serialized weights (gitignored)
-├── reports/                    # Generated HTML/JSON per run (gitignored)
-├── docs/                       # ← COMMITTED: the published dashboard
-│   ├── index.html              # GitHub Pages serves this off main
-│   └── assets/                 # Exported PNGs for README embedding
+├── catalog.json                # ground truth: products (git history = timeline)
+├── policies.json                # ground truth: policy claims
 │
-├── methods.md                  # Mathematical detail on PSI, KS, MMD, scoring
-├── prd.md                      # North-star vision (explicitly aspirational)
-├── prior_work.md               # Predecessor projects in the series
-├── resource.md                 # Build plan under real constraints
+├── methods.md                  # threshold choices, RAGAS/self-consistency detail
+├── prd.md                      # north-star vision, deliberately aspirational
+├── prior_work.md               # where this code actually came from
+├── resource.md                 # build plan under real constraints
 ├── pyproject.toml
 ├── .env.example
 └── .gitignore
 ```
 
-`docs/` is the one generated directory that *is* committed — it is the published artifact, and GitHub Pages reads it directly from `main`.
-
-**Deferred (stretch):** `src/` FastAPI model server + SQLite prediction log. A live endpoint would be a deployment-skills signal, but the dashboard already covers "there is something to click," and the server still moves no number in any table.
-
 ---
 
 ## ⚡ Quickstart
 
-> **Not runnable yet.** Steps below describe the intended flow; scripts are built in Phases 0–C.
-
 ### Prerequisites
 
 - Python 3.10+
-- ~2GB free disk (dataset is ~500MB compressed, larger unpacked)
-- The IEEE-CIS Fraud Detection dataset from [Kaggle](https://www.kaggle.com/competitions/ieee-fraud-detection/data) (free, requires Kaggle account + accepting competition rules)
+- A free [Google AI Studio](https://aistudio.google.com/) key (`GEMINI_API_KEY`) — the agent under test
+- A free [Groq](https://console.groq.com/) key (`GROQ_API_KEY`) — the judge model for faithfulness + self-consistency
 
 ### 1. Clone and install
 
@@ -381,175 +277,71 @@ git clone https://github.com/jboiie/drift-sentinel.git
 cd drift-sentinel
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e ".[baselines,dev]"
+pip install -e ".[dev]"
 ```
 
-### 2. Prepare data
+### 2. Configure
 
 ```bash
-# Place train_transaction.csv and train_identity.csv in data/raw/
-python scripts/prepare_data.py
-# Prints the observed TransactionDT span, then writes:
-#   data/reference/reference_window.csv
-#   data/incoming/batch_01.csv … batch_NN.csv
+cp .env.example .env
+# fill in GEMINI_API_KEY and GROQ_API_KEY
 ```
 
-Only `train_*.csv` is used. The Kaggle `test_*.csv` split has no labels and therefore cannot support performance evaluation.
-
-### 3. Train the baseline model
+### 3. Run the tests (no keys needed)
 
 ```bash
-python scripts/train_model.py
-# LightGBM on the reference window with early stopping
-# Saves models/lgbm_fraud_ref.pkl, prints baseline PR-AUC / ROC-AUC / F1
+pytest
 ```
 
-### 4. Run the drift monitor over all batches
+### 4. Run a live check
 
 ```bash
-python -m sentinel.runner \
-  --reference data/reference/reference_window.csv \
-  --incoming "data/incoming/batch_*.csv" \
-  --model models/lgbm_fraud_ref.pkl \
-  --output reports/ \
-  --fail-above 0.20
+python -m drift.sampler
 ```
-
-### 5. Score the alerts against realized degradation
-
-```bash
-python -m sentinel.evaluation.alert_scorer \
-  --drift-log reports/drift_log.json \
-  --perf-log reports/performance_log.json
-# Emits Table 3: alert precision and recall per detector
-```
-
-### 6. Run engineered drift scenarios (Phase C)
-
-```bash
-python scripts/simulate_drift.py --mode gradual --feature TransactionAmt
-python scripts/simulate_drift.py --mode null      # control: should never alert
-```
-
-### 7. Build the dashboard (Phase D)
-
-```bash
-python -m sentinel.dashboard --reports reports/ --out docs/
-# Renders every panel from reports/*.json into a self-contained docs/index.html
-# and exports panels 1, 2, 5 to docs/assets/*.png
-```
-
-Open `docs/index.html` directly — it has no server and no network dependencies. Pushing `docs/` to `main` publishes it to GitHub Pages.
 
 ---
 
 ## 💰 Cost & Compute
 
-Runs entirely on a student laptop — no GPU required.
-
 | Resource | Purpose | Cost |
 |---|---|---|
-| Laptop (8GB+ RAM, CPU only) | Training, all detectors, full pipeline | ₹0 |
-| Kaggle (free account) | IEEE-CIS dataset download | ₹0 |
+| Google AI Studio (free tier) | The agent under test | ₹0 |
+| Groq (free tier) | Judge model for faithfulness + self-consistency | ₹0 |
 | **Total** | | **₹0** |
 
-Known compute pressure points, both addressed in Phase B:
-
-- **MMD is O(n²)** in batch size. Subsampled to n=2000 per side; the subsample seed is fixed and recorded so results reproduce.
-- **IEEE-CIS has 400+ features** and does not fit comfortably in 8GB as float64. Downcast to float32 on load, and drop columns exceeding a missingness threshold before training.
+Both free tiers are rate-limited per minute. `agent/reference_agent.py` and `judge/groq_model.py` both pace and retry against those limits rather than bursting and hoping — see `GEMINI_MIN_INTERVAL_SECONDS` in `.env.example`.
 
 ---
 
 ## 🔮 Roadmap
 
-One rule drives the plan: real numbers from a real dataset — no toy examples, no synthetic-only demos. Phases run in order; each one's output is the next one's input. Roughly four to five weeks of evenings.
+### Phase 1 — Port (done)
+- [x] Port `agent/`, `judge/`, `drift/` from ARGUS, dropping cart/mandate/checkout/Supabase coupling
+- [x] Adapt logging from Supabase to a local `reports/drift_log.json`
+- [x] Port 13 tests, passing with no API keys required
 
-### Phase 0 — Premise Validation (Day 1)
-Cheapest possible check that the project's core assumption holds, before any detector is written.
-- [ ] Download IEEE-CIS, load `train_transaction.csv`
-- [ ] Measure actual span: `TransactionDT.max() / 86400` → confirm ~182 days
-- [ ] Plot fraud rate and `TransactionAmt` distribution per 30-day bucket
-- [ ] **Decision gate:** is there visible natural drift across the window?
-  - Yes → Phases A–C proceed as written
-  - No → Phase C engineered drift becomes the main event, and Phase A gets written up as-is ("IEEE-CIS shows no meaningful natural drift over 182 days") — still a real answer, just not the expected one
+### Phase 2 — Real Numbers
+- [ ] Run `drift/sampler.py` across enough sessions for Table 1's counts to mean something
+- [ ] Manual review pass over flagged incidents — set `is_false_positive` by hand
+- [ ] Fill Table 2: the false-positive rate, whatever it turns out to be
+- [ ] Re-run `staged_injection.py` for a second ground-truth item (a policy claim, not just a price) to widen the end-to-end proof beyond one case
 
-Phase 0 exists because every downstream table assumes the model degrades. If it doesn't, better to know on day 1 than in week 3.
-
-### Phase A — Baseline Performance Degradation
-Establish how much the model degrades over the labeled window without retraining.
-- [ ] `scripts/prepare_data.py` — temporal split into reference + ordered batches
-- [ ] `scripts/train_model.py` — LightGBM with early stopping on a temporal validation slice
-- [ ] Evaluate each batch with the frozen model
-- [ ] Fill Table 1 (PR-AUC primary)
-- [ ] Define the degradation threshold that Table 3 scores alerts against
-
-### Phase B — Detectors + Alert Precision ← the part worth showing
-- [ ] Implement PSI, KS, MMD, ensemble behind one detector interface
-- [ ] Run all detectors across all batches, label-free
-- [ ] Run NannyML and Evidently on the identical batches
-- [ ] Fill Table 2 (detection timing, false positives, runtime)
-- [ ] Build `alert_scorer` and fill **Table 3** — alert precision vs realized degradation
-- [ ] Report the ensemble result honestly, including if it beats nothing
-
-### Phase C — Engineered Drift Scenarios
-Controlled drift with known ground truth, measuring sensitivity by drift type.
-- [ ] `scripts/simulate_drift.py` — gradual, sudden, prior-shift, correlation-flip, **null control**
-- [ ] Run all detectors against each scenario
-- [ ] Fill Table 4
-- [ ] Write up which detector catches which drift type, and which it misses
-
-### Phase D — Dashboard
-The results, made visible. Runs only on data already produced by Phases A–C — it visualises, it never computes.
-- [ ] `sentinel/dashboard.py` — reads `reports/*.json`, writes a self-contained site to `docs/`
-- [ ] Panel 2 first: PR-AUC over time with alert markers overlaid — the chart the whole project argues for
-- [ ] Panels 1, 3, 5 — scoreboard, drift timelines, scenario heatmap
-- [ ] Panels 4, 6 — feature explorer, run provenance
-- [ ] Dark/light theming, responsive layout, Plotly inlined for offline rendering
-- [ ] Enable GitHub Pages on `main` → `/docs`, confirm the URL loads cold in under a second
-- [ ] Export panels 1, 2, 5 as PNG and embed them in this README
-
-### Stretch — Model Server
-Genuinely optional. Adds no numbers and nothing visual.
-- [ ] FastAPI `/predict` + `/health`, SQLite prediction log
+### Phase 3 — Dashboard
+- [ ] Static Plotly site → `docs/` → GitHub Pages
+- [ ] Incident timeline, false-positive scoreboard, drift-cause breakdown, staged-injection replay
+- [ ] Enable Pages on `main` → `/docs`, confirm cold load under a second
 
 ### Explicitly Out of Scope
 
-**ADWIN** reacts to error-rate changes and requires ground-truth labels. In fraud, confirmed outcomes arrive days-to-weeks after prediction, so ADWIN cannot run in the label-free setting this project is about. It is complementary to input-space methods, not a substitute — and including it would quietly undermine the premise that these detectors work without labels.
-
-**Online retraining, multi-model adapters, streaming, GPU MMD, non-tabular data** — see [prd.md](prd.md) for the north-star versions of each.
-
----
-
-## 🧰 What This Project Demonstrates
-
-Built as a personal project — no paper, no team, no budget. What it exercises:
-
-| Area | Concretely |
-|---|---|
-| **ML engineering** | LightGBM on 400+ features, temporal train/validation split, PR-AUC under 3.5% class imbalance |
-| **Statistics** | PSI, KS with multiple-testing correction, MMD with a kernel permutation test — implemented from the math, not called from a library |
-| **Evaluation design** | Label-free detection graded against withheld labels, trivial baselines on both ends, a null control for false positives |
-| **Judgement** | Knowing that "I built a drift monitor" is a commodity, and that "I measured whether the monitor was worth listening to" is not |
-| **Data visualisation** | A published static dashboard: alert markers overlaid on the performance curve, small multiples, a scenario heatmap — themed, responsive, and generated entirely from run output |
-| **Engineering practice** | One detector interface, tests on synthetic data with no dataset dependency, seeded runs, CI-friendly exit codes, HTML reports |
-| **Scoping** | A deployment layer that was specified, costed at a week, and cut because it moved no number — documented rather than quietly dropped |
-
-The honest version of the resume line, once the tables are full:
-
-> Built a drift-detection pipeline (PSI / KS / MMD / ensemble) over 180 days of IEEE-CIS fraud data, then measured **alert precision** — what fraction of each detector's alerts actually preceded model degradation — against never-alert and always-alert baselines and against NannyML and Evidently.
+**The cart/checkout/mandate agent, red-team attack harness, Supabase telemetry, Razorpay payment integration** — all real parts of ARGUS, none of them relevant to whether a drift monitor's flags are worth reading. Left behind on purpose, not missing by oversight. See [prior_work.md](prior_work.md).
 
 ---
 
 ## 📚 Reading That Shaped This
 
-- [IEEE-CIS Fraud Detection Dataset](https://www.kaggle.com/competitions/ieee-fraud-detection) — Kaggle, 2019
-- [Failing Loudly: An Empirical Study of Methods for Detecting Dataset Shift](https://arxiv.org/abs/1810.11953) — Rabanser et al. 2019 — where the alert-precision idea came from
-- [A Kernel Two-Sample Test](https://jmlr.org/papers/v13/gretton12a.html) — Gretton et al. 2012 — MMD theoretical basis, unbiased estimator
-- [The Relationship Between Precision-Recall and ROC Curves](https://dl.acm.org/doi/10.1145/1143844.1143874) — Davis & Goadrich 2006 — why PR-AUC over ROC-AUC under class imbalance
-- [Learning and Evaluating Classifiers under Sample Selection Bias](https://dl.acm.org/doi/10.1145/1015330.1015425) — Zadrozny 2004
-- [Learning from Time-Changing Data with Adaptive Windowing](https://doi.org/10.1137/1.9781611972771.42) — Bifet & Gavaldà 2007 — ADWIN, discussed as out-of-scope
-- [NannyML](https://github.com/NannyML/nannyml) — external comparison baseline
-- [Evidently AI](https://github.com/evidentlyai/evidently) — external comparison baseline
+- [SelfCheckGPT: Zero-Resource Black-Box Hallucination Detection](https://arxiv.org/abs/2303.08896) — Manakul et al. 2023 — the self-consistency check's basis
+- [RAGAS: Automated Evaluation of Retrieval Augmented Generation](https://arxiv.org/abs/2309.15217) — Es et al. 2023 — the Faithfulness metric used for policy answers
+- [Failing Loudly: An Empirical Study of Methods for Detecting Dataset Shift](https://arxiv.org/abs/1810.11953) — Rabanser et al. 2019 — where the "does a flag predict a real problem" framing originally came from, applied here to LLM answers instead of tabular features
 
 ---
 
