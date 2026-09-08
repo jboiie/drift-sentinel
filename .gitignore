@@ -9,18 +9,11 @@ build/
 # Environment
 .env
 
-# Data (large files — download from Kaggle)
-data/raw/
-data/reference/
-data/incoming/
-
-# Models (serialized weights)
-models/*.pkl
-models/*.txt
-models/*.json
+# Staged-injection scratch state — deliberately not committed, see
+# drift/staged_injection.py
+.drift_injection_state.json
 
 # Reports (generated — not source)
-reports/*.html
 reports/*.json
 
 # NOTE: docs/ is generated too, but is deliberately NOT ignored —
