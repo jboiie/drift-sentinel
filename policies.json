@@ -1,0 +1,72 @@
+[
+  {
+    "id": "policy_refund_window",
+    "topic": "refund",
+    "claim": "Items can be returned for a refund within 30 days of delivery."
+  },
+  {
+    "id": "policy_refund_receipt",
+    "topic": "refund",
+    "claim": "A valid order ID is required to process any refund."
+  },
+  {
+    "id": "policy_refund_sale_items",
+    "topic": "refund",
+    "claim": "Items purchased during a clearance sale are not eligible for refund, only exchange."
+  },
+  {
+    "id": "policy_refund_processing_time",
+    "topic": "refund",
+    "claim": "Approved refunds are credited to the original payment method within 5-7 business days."
+  },
+  {
+    "id": "policy_shipping_domestic_cost",
+    "topic": "shipping",
+    "claim": "Standard domestic shipping costs 99 rupees per order."
+  },
+  {
+    "id": "policy_shipping_free_threshold",
+    "topic": "shipping",
+    "claim": "Orders above 999 rupees qualify for free standard shipping."
+  },
+  {
+    "id": "policy_shipping_delivery_time",
+    "topic": "shipping",
+    "claim": "Standard domestic delivery takes 3 to 5 business days."
+  },
+  {
+    "id": "policy_shipping_international",
+    "topic": "shipping",
+    "claim": "International shipping is not currently available."
+  },
+  {
+    "id": "policy_warranty_duration",
+    "topic": "warranty",
+    "claim": "Electronics products carry a 1-year manufacturer warranty against defects."
+  },
+  {
+    "id": "policy_warranty_exclusions",
+    "topic": "warranty",
+    "claim": "Warranty does not cover damage caused by accidental drops or water exposure."
+  },
+  {
+    "id": "policy_cancellation_window",
+    "topic": "cancellation",
+    "claim": "Orders can be cancelled free of charge only before they have shipped."
+  },
+  {
+    "id": "policy_cancellation_shipped",
+    "topic": "cancellation",
+    "claim": "Once an order has shipped, it cannot be cancelled and must go through the return process instead."
+  },
+  {
+    "id": "policy_discount_stacking",
+    "topic": "discount",
+    "claim": "Only one discount code can be applied per order."
+  },
+  {
+    "id": "policy_discount_validity",
+    "topic": "discount",
+    "claim": "Discount codes not listed as active in the current promotions list are invalid and must not be honored."
+  }
+]
